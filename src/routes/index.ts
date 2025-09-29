@@ -4,6 +4,8 @@ import dataRoutes from './data.js';
 import supabaseRoutes from './supabase.js';
 import patientRoutes from './patients.js';
 import appointmentRoutes from './appointments.js';
+import viewsRoutes from './views.js';
+import patientsWithHistoryRoutes from './patients-with-history.js';
 import { ApiResponse } from '../types/index.js';
 
 const router = express.Router();
@@ -19,18 +21,19 @@ router.get('/', (_req: Request, res: Response) => {
       endpoints: {
         auth: '/auth',
         patients: '/patients',
+        patientsWithHistory: '/patients-with-history',
         appointments: '/appointments',
         data: '/data',
         supabase: '/supabase',
+        views: '/views',
         health: '/health'
       },
       documentation: 'https://github.com/your-repo/femimed-backend',
       supabase: {
         url: 'https://snxiprwaaxaobjppqnxw.supabase.co',
         tables: [
-          'users', 'pacientes', 'doctors', 'appointments',
-          'medical_records', 'prescriptions', 'medicines',
-          'departments', 'specialties'
+          'especialidades', 'medicos', 'pacientes', 'historico_pacientes',
+          'vista_medicos_completa', 'vista_historico_completo', 'vista_estadisticas_especialidad'
         ]
       },
       features: [
@@ -39,7 +42,10 @@ router.get('/', (_req: Request, res: Response) => {
         'Appointment Scheduling',
         'Medical Records',
         'Real-time Database',
-        'TypeScript Support'
+        'TypeScript Support',
+        'Database Views & Functions',
+        'Medical Statistics',
+        'Filtered History Queries'
       ]
     }
   };
@@ -49,8 +55,10 @@ router.get('/', (_req: Request, res: Response) => {
 // Mount route modules
 router.use('/auth', authRoutes);
 router.use('/patients', patientRoutes);
+router.use('/patients-with-history', patientsWithHistoryRoutes);
 router.use('/appointments', appointmentRoutes);
 router.use('/data', dataRoutes);
 router.use('/supabase', supabaseRoutes);
+router.use('/views', viewsRoutes);
 
 export default router;
