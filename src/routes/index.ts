@@ -7,6 +7,7 @@ import appointmentRoutes from './appointments.js';
 import remisionRoutes from './remisiones.js';
 import historicoRoutes from './historico.js';
 import medicoRoutes from './medicos.js';
+import especialidadRoutes from './especialidades.js';
 import { ApiResponse } from '../types/index.js';
 
 const router = express.Router();
@@ -26,6 +27,7 @@ router.get('/', (_req: Request, res: Response) => {
             remisiones: '/remisiones',
             historico: '/historico',
             medicos: '/medicos',
+            especialidades: '/especialidades',
             data: '/data',
             supabase: '/supabase',
             health: '/health'
@@ -59,6 +61,7 @@ router.use('/appointments', appointmentRoutes);
 router.use('/remisiones', remisionRoutes);
 router.use('/historico', historicoRoutes);
 router.use('/medicos', medicoRoutes);
+router.use('/especialidades', especialidadRoutes);
 router.use('/data', dataRoutes);
 router.use('/supabase', supabaseRoutes);
 
