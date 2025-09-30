@@ -1,5 +1,6 @@
 import { PatientRepository, PatientData } from '../repositories/patient.repository.js';
 import { PaginationInfo } from '../types/index.js';
+import { supabase } from '../config/database.js';
 
 export class PatientService {
   private patientRepository: PatientRepository;
@@ -102,6 +103,18 @@ export class PatientService {
     }
   }
 
+  async searchPatientsByCedula(cedula: string): Promise<PatientData[]> {
+    try {
+      if (!cedula || cedula.trim().length < 2) {
+        throw new Error('Search cedula must be at least 2 characters long');
+      }
+
+      return await this.patientRepository.searchByCedula(cedula.trim());
+    } catch (error) {
+      throw new Error(`Failed to search patients by cedula: ${(error as Error).message}`);
+    }
+  }
+
   async getPatientsByAgeRange(minAge: number, maxAge: number): Promise<PatientData[]> {
     try {
       if (minAge < 0 || maxAge < 0 || minAge > maxAge) {
@@ -118,7 +131,6 @@ export class PatientService {
     total: number;
     bySex: { Masculino: number; Femenino: number; Otro: number };
     byAgeGroup: { [key: string]: number };
-    recent: number;
   }> {
     try {
       const { data: allPatients } = await this.patientRepository.findAll({}, { page: 1, limit: 1000 });
@@ -126,13 +138,8 @@ export class PatientService {
       const stats = {
         total: allPatients.length,
         bySex: { Masculino: 0, Femenino: 0, Otro: 0 },
-        byAgeGroup: {} as { [key: string]: number },
-        recent: 0
+        byAgeGroup: {} as { [key: string]: number }
       };
-
-      const currentDate = new Date();
-      const currentMonth = currentDate.getMonth();
-      const currentYear = currentDate.getFullYear();
 
       allPatients.forEach(patient => {
         // Count by sex
@@ -143,19 +150,157 @@ export class PatientService {
         // Count by age group
         const ageGroup = this.getAgeGroup(patient.edad);
         stats.byAgeGroup[ageGroup] = (stats.byAgeGroup[ageGroup] || 0) + 1;
-
-        // Count recent patients (this month)
-        if (patient.fecha_creacion) {
-          const patientDate = new Date(patient.fecha_creacion);
-          if (patientDate.getMonth() === currentMonth && patientDate.getFullYear() === currentYear) {
-            stats.recent++;
-          }
-        }
       });
 
       return stats;
     } catch (error) {
       throw new Error(`Failed to get patient statistics: ${(error as Error).message}`);
+    }
+  }
+
+  async getPatientsByMedico(medicoId: number, page: number = 1, limit: number = 100, filters: any = {}): Promise<{ patients: PatientData[], total: number }> {
+    try {
+      if (!medicoId || medicoId <= 0) {
+        throw new Error('Valid medico ID is required');
+      }
+
+      console.log('🔍 Getting patients for medico_id:', medicoId, 'page:', page, 'limit:', limit, 'filters:', filters);
+
+      // Use the advanced SQL function with proper parameters
+      const { data, error } = await supabase.rpc('get_pacientes_medico', {
+        p_medico_id: medicoId,
+        p_page: page,
+        p_limit: limit,
+        p_filters: filters
+      });
+
+      if (error) {
+        console.error('❌ RPC function error:', error);
+        
+        // Fallback to direct query if function fails
+        console.log('🔄 Function failed, using fallback query');
+        return await this.getPatientsByMedicoFallback(medicoId);
+      }
+
+      console.log('✅ RPC function result:', data);
+      
+      // Extract patients and total count
+      const patients = data?.map((item: any) => ({
+        id: item.id,
+        nombres: item.nombres,
+        apellidos: item.apellidos,
+        cedula: item.cedula,
+        edad: item.edad,
+        sexo: item.sexo,
+        email: item.email,
+        telefono: item.telefono,
+        fecha_creacion: item.fecha_creacion,
+        fecha_actualizacion: item.fecha_actualizacion,
+        // Additional fields from the function
+        tipo_paciente: item.tipo_paciente,
+        medico_remitente_id: item.medico_remitente_id,
+        medico_remitente_nombre: item.medico_remitente_nombre,
+        fecha_remision: item.fecha_remision,
+        motivo_remision: item.motivo_remision
+      })) || [];
+
+      const total = data?.[0]?.total_count || 0;
+
+      return { patients, total };
+    } catch (error) {
+      console.error('❌ getPatientsByMedico error:', error);
+      throw new Error(`Failed to get patients by medico: ${(error as Error).message}`);
+    }
+  }
+
+  private async getPatientsByMedicoFallback(medicoId: number): Promise<{ patients: PatientData[], total: number }> {
+    try {
+      console.log('🔄 Using fallback query for medico_id:', medicoId);
+
+      // Fallback: Use direct query to historico_pacientes
+      const { data: historicoData, error: historicoError } = await supabase
+        .from('historico_pacientes')
+        .select(`
+          *,
+          pacientes!inner(*)
+        `)
+        .eq('medico_id', medicoId);
+
+      if (historicoError) {
+        console.error('❌ Fallback query error:', historicoError);
+        throw new Error(`Database error: ${historicoError.message}`);
+      }
+
+      // Extract patient data from the join and remove duplicates
+      const patients = historicoData?.map(item => item.pacientes).filter(Boolean) || [];
+      
+      // Remove duplicates based on patient ID
+      const uniquePatients = patients.filter((patient, index, self) => 
+        index === self.findIndex(p => p.id === patient.id)
+      );
+
+      console.log('✅ Fallback query result:', uniquePatients);
+      return { patients: uniquePatients, total: uniquePatients.length };
+    } catch (error) {
+      console.error('❌ Fallback query error:', error);
+      throw new Error(`Failed to get patients by medico (fallback): ${(error as Error).message}`);
+    }
+  }
+
+  // Método específico para estadísticas (sin paginación)
+  async getPatientsByMedicoForStats(medicoId: number | null = null): Promise<PatientData[]> {
+    try {
+      console.log('📊 Getting ALL patients for statistics, medico_id:', medicoId);
+
+      // Use the SQL function with high limit to get all patients for statistics
+      const { data, error } = await supabase.rpc('get_pacientes_medico', {
+        p_medico_id: medicoId, // Can be null for admin (all patients)
+        p_page: 1,
+        p_limit: 10000, // High limit to get all patients
+        p_filters: {} // No filters for statistics
+      });
+
+      if (error) {
+        console.error('❌ RPC function error for stats:', error);
+        console.error('❌ Error details:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code
+        });
+        
+        // Fallback to direct query if function fails
+        console.log('🔄 Function failed for stats, using fallback query');
+        if (medicoId) {
+          const fallbackResult = await this.getPatientsByMedicoFallback(medicoId);
+          return fallbackResult.patients;
+        } else {
+          // For admin, fallback to getAllPatients
+          const allPatientsResult = await this.patientRepository.findAll();
+          return allPatientsResult.data;
+        }
+      }
+
+      console.log('✅ RPC function result for stats:', data?.length, 'patients');
+      
+      // Extract patients for statistics
+      const patients = data?.map((item: any) => ({
+        id: item.id,
+        nombres: item.nombres,
+        apellidos: item.apellidos,
+        cedula: item.cedula,
+        edad: item.edad,
+        sexo: item.sexo,
+        email: item.email,
+        telefono: item.telefono,
+        fecha_creacion: item.fecha_creacion,
+        fecha_actualizacion: item.fecha_actualizacion
+      })) || [];
+
+      return patients;
+    } catch (error) {
+      console.error('❌ getPatientsByMedicoForStats error:', error);
+      throw new Error(`Failed to get patients by medico for stats: ${(error as Error).message}`);
     }
   }
 

@@ -29,6 +29,11 @@ const authSchemas = {
     password: Joi.string().required()
   }),
   
+  login: Joi.object({
+    username: Joi.string().required(),
+    password: Joi.string().required()
+  }),
+  
   resetPassword: Joi.object<ResetPasswordRequest>({
     email: Joi.string().email().required()
   }),
@@ -43,6 +48,7 @@ const authSchemas = {
 // Auth routes
 router.post('/signup', validateRequest(authSchemas.signUp), (req, res) => authController.signUp(req, res));
 router.post('/signin', validateRequest(authSchemas.signIn), (req, res) => authController.signIn(req, res));
+router.post('/login', validateRequest(authSchemas.login), (req, res) => authController.login(req, res));
 router.post('/signout', (req, res) => authController.signOut(req, res));
 router.get('/user', (req, res) => authController.getCurrentUser(req, res));
 router.put('/user', validateRequest(authSchemas.updateUser), (req, res) => authController.updateUser(req, res));

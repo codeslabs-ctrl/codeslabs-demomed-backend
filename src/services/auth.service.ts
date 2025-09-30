@@ -1,6 +1,8 @@
 import { supabase } from '../config/database.js';
 import { UserRepository, UserData } from '../repositories/user.repository.js';
 import { SignUpRequest, SignInRequest, UpdateUserRequest } from '../types/index.js';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 
 export class AuthService {
   private userRepository: UserRepository;
@@ -54,6 +56,65 @@ export class AuthService {
       };
     } catch (error) {
       throw new Error(`Sign in failed: ${(error as Error).message}`);
+    }
+  }
+
+  async login(username: string, password: string): Promise<{ token: string; user: any }> {
+    try {
+      // Buscar usuario por username en la tabla usuarios
+      const { data: userData, error: userError } = await supabase
+        .from('usuarios')
+        .select(`
+          id,
+          username,
+          email,
+          password_hash,
+          rol,
+          medico_id,
+          activo
+        `)
+        .eq('username', username)
+        .eq('activo', true)
+        .single();
+
+      if (userError || !userData) {
+        throw new Error('Usuario no encontrado o inactivo');
+      }
+
+      // Verificar contraseña usando bcrypt
+      const isValidPassword = await bcrypt.compare(password, userData.password_hash);
+      
+      if (!isValidPassword) {
+        throw new Error('Contraseña incorrecta');
+      }
+
+      // Generar JWT token
+      const token = jwt.sign(
+        { 
+          userId: userData.id, 
+          username: userData.username, 
+          rol: userData.rol,
+          medico_id: userData.medico_id 
+        },
+        process.env['JWT_SECRET'] || 'femimed-secret-key',
+        { expiresIn: '24h' }
+      );
+
+      // Preparar datos del usuario para respuesta
+      const user = {
+        id: userData.id,
+        username: userData.username,
+        email: userData.email,
+        rol: userData.rol,
+        medico_id: userData.medico_id
+      };
+
+      return {
+        token,
+        user
+      };
+    } catch (error) {
+      throw new Error(`Login failed: ${(error as Error).message}`);
     }
   }
 

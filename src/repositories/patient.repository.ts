@@ -4,13 +4,19 @@ export interface PatientData {
   id?: number;
   nombres: string;
   apellidos: string;
+  cedula?: string;
   edad: number;
   sexo: 'Masculino' | 'Femenino' | 'Otro';
   email?: string;
   telefono?: string;
+  medico_id?: number;
   motivo_consulta?: string;
   diagnostico?: string;
   conclusiones?: string;
+  antecedentes_medicos?: string;
+  medicamentos?: string;
+  alergias?: string;
+  observaciones?: string;
   fecha_creacion?: string;
   fecha_actualizacion?: string;
 }
@@ -55,6 +61,23 @@ export class PatientRepository extends SupabaseRepository<PatientData> {
       return data || [];
     } catch (error) {
       throw new Error(`Failed to search patients by name: ${(error as Error).message}`);
+    }
+  }
+
+  async searchByCedula(cedula: string): Promise<PatientData[]> {
+    try {
+      const { data, error } = await this.client
+        .from(this.tableName)
+        .select('*')
+        .ilike('cedula', `%${cedula}%`);
+
+      if (error) {
+        throw new Error(`Database error: ${error.message}`);
+      }
+
+      return data || [];
+    } catch (error) {
+      throw new Error(`Failed to search patients by cedula: ${(error as Error).message}`);
     }
   }
 

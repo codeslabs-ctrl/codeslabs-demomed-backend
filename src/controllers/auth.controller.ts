@@ -64,6 +64,30 @@ export class AuthController {
     }
   }
 
+  async login(req: Request<{}, ApiResponse, any>, res: Response<ApiResponse>): Promise<void> {
+    try {
+      const { username, password } = req.body;
+      
+      const result = await this.authService.login(username, password);
+
+      const response: ApiResponse = {
+        success: true,
+        data: {
+          message: 'Login successful',
+          token: result.token,
+          user: result.user
+        }
+      };
+      res.json(response);
+    } catch (error) {
+      const response: ApiResponse = {
+        success: false,
+        error: { message: (error as Error).message }
+      };
+      res.status(401).json(response);
+    }
+  }
+
   async signOut(_req: Request, res: Response<ApiResponse>): Promise<void> {
     try {
       await this.authService.signOut();

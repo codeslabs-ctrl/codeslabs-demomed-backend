@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { PatientService } from '../services/patient.service.js';
 import { ApiResponse } from '../types/index.js';
+import { supabase } from '../config/database.js';
 
 export class PatientController {
   private patientService: PatientService;
@@ -196,6 +197,35 @@ export class PatientController {
     }
   }
 
+  async searchPatientsByCedula(req: Request<{}, ApiResponse, {}, { cedula?: string }>, res: Response<ApiResponse>): Promise<void> {
+    try {
+      const { cedula } = req.query;
+      
+      if (!cedula) {
+        const response: ApiResponse = {
+          success: false,
+          error: { message: 'Cedula parameter is required' }
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      const patients = await this.patientService.searchPatientsByCedula(cedula as string);
+
+      const response: ApiResponse = {
+        success: true,
+        data: patients
+      };
+      res.json(response);
+    } catch (error) {
+      const response: ApiResponse = {
+        success: false,
+        error: { message: (error as Error).message }
+      };
+      res.status(400).json(response);
+    }
+  }
+
   async getPatientsByAgeRange(req: Request<{}, ApiResponse, {}, { minAge?: string; maxAge?: string }>, res: Response<ApiResponse>): Promise<void> {
     try {
       const { minAge, maxAge } = req.query;
@@ -243,6 +273,197 @@ export class PatientController {
         error: { message: (error as Error).message }
       };
       res.status(500).json(response);
+    }
+  }
+
+  async getPatientsByMedico(req: Request<{ medicoId: string }, ApiResponse, {}, { page?: string; limit?: string; [key: string]: string }>, res: Response<ApiResponse>): Promise<void> {
+    try {
+      const { medicoId } = req.params;
+      const { page = '1', limit = '100', ...filters } = req.query;
+      
+      const id = parseInt(medicoId);
+      const pageNum = parseInt(page);
+      const limitNum = parseInt(limit);
+
+      if (isNaN(id) || id <= 0) {
+        const response: ApiResponse = {
+          success: false,
+          error: { message: 'Invalid medico ID' }
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      if (isNaN(pageNum) || pageNum < 1) {
+        const response: ApiResponse = {
+          success: false,
+          error: { message: 'Invalid page number' }
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      if (isNaN(limitNum) || limitNum < 1 || limitNum > 1000) {
+        const response: ApiResponse = {
+          success: false,
+          error: { message: 'Invalid limit (must be between 1 and 1000)' }
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      const result = await this.patientService.getPatientsByMedico(id, pageNum, limitNum, filters);
+
+      const response: ApiResponse = {
+        success: true,
+        data: {
+          patients: result.patients,
+          total: result.total,
+          page: pageNum,
+          limit: limitNum,
+          totalPages: Math.ceil(result.total / limitNum)
+        }
+      };
+      res.json(response);
+    } catch (error) {
+      const response: ApiResponse = {
+        success: false,
+        error: { message: (error as Error).message }
+      };
+      res.status(400).json(response);
+    }
+  }
+
+  async testEndpoint(_req: Request, res: Response<ApiResponse>): Promise<void> {
+    try {
+      const response: ApiResponse = {
+        success: true,
+        data: { message: 'Test endpoint working', timestamp: new Date().toISOString() }
+      };
+      res.json(response);
+    } catch (error) {
+      const response: ApiResponse = {
+        success: false,
+        error: { message: (error as Error).message }
+      };
+      res.status(500).json(response);
+    }
+  }
+
+  async testFunction(req: Request<{ medicoId: string }, ApiResponse>, res: Response<ApiResponse>): Promise<void> {
+    try {
+      const { medicoId } = req.params;
+      const id = parseInt(medicoId);
+
+      if (isNaN(id) || id <= 0) {
+        const response: ApiResponse = {
+          success: false,
+          error: { message: 'Invalid medico ID' }
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      // Test the function directly
+      const { data, error } = await supabase.rpc('get_pacientes_medico', {
+        p_medico_id: id
+      });
+
+      const response: ApiResponse = {
+        success: true,
+        data: {
+          message: 'Function test result',
+          medicoId: id,
+          rawData: data,
+          error: error,
+          dataType: typeof data,
+          dataLength: Array.isArray(data) ? data.length : 'not array'
+        }
+      };
+      res.json(response);
+    } catch (error) {
+      const response: ApiResponse = {
+        success: false,
+        error: { message: (error as Error).message }
+      };
+      res.status(500).json(response);
+    }
+  }
+
+  async testHistorico(req: Request<{ medicoId: string }, ApiResponse>, res: Response<ApiResponse>): Promise<void> {
+    try {
+      const { medicoId } = req.params;
+      const id = parseInt(medicoId);
+
+      if (isNaN(id) || id <= 0) {
+        const response: ApiResponse = {
+          success: false,
+          error: { message: 'Invalid medico ID' }
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      // Test direct query to historico_pacientes
+      const { data, error } = await supabase
+        .from('historico_pacientes')
+        .select(`
+          *,
+          pacientes!inner(*)
+        `)
+        .eq('medico_id', id);
+
+      const response: ApiResponse = {
+        success: true,
+        data: {
+          message: 'Historico test result',
+          medicoId: id,
+          rawData: data,
+          error: error,
+          dataType: typeof data,
+          dataLength: Array.isArray(data) ? data.length : 'not array'
+        }
+      };
+      res.json(response);
+    } catch (error) {
+      const response: ApiResponse = {
+        success: false,
+        error: { message: (error as Error).message }
+      };
+      res.status(500).json(response);
+    }
+  }
+
+  async getPatientsByMedicoForStats(req: Request<{ medicoId?: string }, ApiResponse>, res: Response<ApiResponse>): Promise<void> {
+    try {
+      const { medicoId } = req.params;
+      
+      let id: number | null = null;
+      if (medicoId) {
+        id = parseInt(medicoId);
+        if (isNaN(id) || id <= 0) {
+          const response: ApiResponse = {
+            success: false,
+            error: { message: 'Invalid medico ID' }
+          };
+          res.status(400).json(response);
+          return;
+        }
+      }
+
+      const patients = await this.patientService.getPatientsByMedicoForStats(id);
+
+      const response: ApiResponse = {
+        success: true,
+        data: patients
+      };
+      res.json(response);
+    } catch (error) {
+      const response: ApiResponse = {
+        success: false,
+        error: { message: (error as Error).message }
+      };
+      res.status(400).json(response);
     }
   }
 }
