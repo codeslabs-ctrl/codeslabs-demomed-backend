@@ -9,7 +9,7 @@ export class EspecialidadController {
       const { data: especialidades, error } = await supabase
         .from('especialidades')
         .select('*')
-        .order('nombre', { ascending: true });
+        .order('nombre_especialidad', { ascending: true });
 
       if (error) {
         throw new Error(`Database error: ${error.message}`);
@@ -84,14 +84,14 @@ export class EspecialidadController {
     }
   }
 
-  async createEspecialidad(req: Request<{}, ApiResponse, { nombre: string; descripcion: string }>, res: Response<ApiResponse>): Promise<void> {
+  async createEspecialidad(req: Request<{}, ApiResponse, { nombre_especialidad: string; descripcion: string }>, res: Response<ApiResponse>): Promise<void> {
     try {
-      const { nombre, descripcion } = req.body;
+      const { nombre_especialidad, descripcion } = req.body;
 
-      if (!nombre || !descripcion) {
+      if (!nombre_especialidad || !descripcion) {
         const response: ApiResponse = {
           success: false,
-          error: { message: 'Nombre and descripcion are required' }
+          error: { message: 'Nombre_especialidad and descripcion are required' }
         };
         res.status(400).json(response);
         return;
@@ -99,7 +99,7 @@ export class EspecialidadController {
 
       const { data: newEspecialidad, error: createError } = await supabase
         .from('especialidades')
-        .insert({ nombre, descripcion })
+        .insert({ nombre_especialidad, descripcion })
         .select()
         .single();
 
@@ -121,10 +121,10 @@ export class EspecialidadController {
     }
   }
 
-  async updateEspecialidad(req: Request<{ id: string }, ApiResponse, { nombre?: string; descripcion?: string }>, res: Response<ApiResponse>): Promise<void> {
+  async updateEspecialidad(req: Request<{ id: string }, ApiResponse, { nombre_especialidad?: string; descripcion?: string }>, res: Response<ApiResponse>): Promise<void> {
     try {
       const { id } = req.params;
-      const { nombre, descripcion } = req.body;
+      const { nombre_especialidad, descripcion } = req.body;
       const especialidadId = parseInt(id);
 
       if (isNaN(especialidadId) || especialidadId <= 0) {
@@ -136,8 +136,8 @@ export class EspecialidadController {
         return;
       }
 
-      const updateData: { nombre?: string; descripcion?: string } = {};
-      if (nombre !== undefined) updateData.nombre = nombre;
+      const updateData: { nombre_especialidad?: string; descripcion?: string } = {};
+      if (nombre_especialidad !== undefined) updateData.nombre_especialidad = nombre_especialidad;
       if (descripcion !== undefined) updateData.descripcion = descripcion;
 
       const { data: updatedEspecialidad, error: updateError } = await supabase
@@ -218,8 +218,8 @@ export class EspecialidadController {
       const { data: especialidades, error } = await supabase
         .from('especialidades')
         .select('*')
-        .or(`nombre.ilike.%${q}%,descripcion.ilike.%${q}%`)
-        .order('nombre', { ascending: true });
+        .or(`nombre_especialidad.ilike.%${q}%,descripcion.ilike.%${q}%`)
+        .order('nombre_especialidad', { ascending: true });
 
       if (error) {
         throw new Error(`Database error: ${error.message}`);

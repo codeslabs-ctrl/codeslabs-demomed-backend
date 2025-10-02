@@ -54,23 +54,15 @@ export class MedicoController {
     try {
       const { data, error } = await supabase
         .from('medicos')
-        .select(`
-          *,
-          especialidades!medicos_especialidad_id_fkey (
-            nombre
-          )
-        `)
+        .select('*')
         .order('nombres', { ascending: true });
 
       if (error) {
         throw new Error(`Database error: ${error.message}`);
       }
 
-      // Mapear los datos para incluir el nombre de la especialidad
-      const medicosWithEspecialidad = data?.map(medico => ({
-        ...medico,
-        especialidad_nombre: (medico.especialidades as any)?.nombre
-      })) || [];
+      // Por ahora, devolver los médicos sin el join de especialidades
+      const medicosWithEspecialidad = data || [];
 
       const response: ApiResponse = {
         success: true,

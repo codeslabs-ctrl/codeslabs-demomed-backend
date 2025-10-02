@@ -6,7 +6,7 @@ dotenv.config({ path: './config.env' });
 
 export const config: Config = {
   // Server configuration
-  port: parseInt(process.env['PORT'] || '3001'),
+  port: parseInt(process.env['PORT'] || '3000'),
   nodeEnv: process.env['NODE_ENV'] || 'development',
   
   // Supabase configuration
