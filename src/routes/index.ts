@@ -10,6 +10,8 @@ import medicoRoutes from './medicos.js';
 import especialidadRoutes from './especialidades.js';
 import viewsRoutes from './views.js';
 import consultaRoutes from './consultas.js';
+import archivoRoutes from './archivos.js';
+import mensajeRoutes from './mensajes.js';
 import { ApiResponse } from '../types/index.js';
 
 const router = express.Router();
@@ -31,6 +33,8 @@ router.get('/', (_req: Request, res: Response) => {
             medicos: '/medicos',
             especialidades: '/especialidades',
             consultas: '/consultas',
+            archivos: '/archivos',
+            mensajes: '/mensajes',
             views: '/views',
             data: '/data',
             supabase: '/supabase',
@@ -67,6 +71,8 @@ router.use('/historico', historicoRoutes);
 router.use('/medicos', medicoRoutes);
 router.use('/especialidades', especialidadRoutes);
 router.use('/consultas', consultaRoutes);
+router.use('/archivos', archivoRoutes);
+router.use('/mensajes', mensajeRoutes);
 router.use('/views', viewsRoutes);
 router.use('/data', dataRoutes);
 router.use('/supabase', supabaseRoutes);
