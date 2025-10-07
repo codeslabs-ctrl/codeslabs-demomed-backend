@@ -70,15 +70,21 @@ export class PatientService {
       console.log('✅ PatientService - Validaciones pasadas, iniciando transacción...');
       
       // Usar transacción para garantizar integridad de datos
+      const medicalData = {
+        motivo_consulta: motivo_consulta || null,
+        diagnostico: diagnostico || null,
+        conclusiones: conclusiones || null,
+        plan: plan || null,
+        medico_id: medicoId || null
+      };
+      
+      console.log('🔍 PatientService - Datos del paciente básico:', JSON.stringify(patientBasicData, null, 2));
+      console.log('🔍 PatientService - Datos médicos:', JSON.stringify(medicalData, null, 2));
+      console.log('🔍 PatientService - Medico ID:', medicoId);
+      
       const { data: result, error: transactionError } = await supabase.rpc('create_patient_with_history', {
         patient_data: patientBasicData,
-        medical_data: {
-          motivo_consulta: motivo_consulta || null,
-          diagnostico: diagnostico || null,
-          conclusiones: conclusiones || null,
-          plan: plan || null,
-          medico_id: medicoId || null
-        }
+        medical_data: medicalData
       });
 
       if (transactionError) {

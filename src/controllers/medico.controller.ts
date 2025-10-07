@@ -331,7 +331,7 @@ export class MedicoController {
 
       const medicos = data?.map(medico => ({
         ...medico,
-        especialidad_nombre: (medico.especialidades as any)?.nombre
+        especialidad_nombre: (medico.especialidades as any)?.nombre_especialidad
       })) || [];
 
       const response: ApiResponse = {
@@ -379,7 +379,7 @@ export class MedicoController {
 
       const medicos = data?.map(medico => ({
         ...medico,
-        especialidad_nombre: (medico.especialidades as any)?.nombre
+        especialidad_nombre: (medico.especialidades as any)?.nombre_especialidad
       })) || [];
 
       const response: ApiResponse = {

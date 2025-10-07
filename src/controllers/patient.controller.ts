@@ -126,13 +126,17 @@ export class PatientController {
       
         // Obtener el medico_id del token JWT para el historial médico
         const user = (req as any).user;
-        console.log('🔍 Backend - Usuario del token:', user);
+        console.log('🔍 Backend - Usuario del token completo:', JSON.stringify(user, null, 2));
+        console.log('🔍 Backend - Tipo de usuario:', typeof user);
+        console.log('🔍 Backend - Medico ID del token:', user?.medico_id);
+        console.log('🔍 Backend - Rol del usuario:', user?.rol);
         
         if (user && user.medico_id) {
           // El medico_id se usará para el historial médico, no para el paciente
           console.log('✅ Backend - Medico ID disponible para historial:', user.medico_id);
         } else {
           console.log('⚠️ Backend - No se encontró medico_id en el token');
+          console.log('⚠️ Backend - Usuario completo:', user);
         }
       
       const patient = await this.patientService.createPatient(patientData, user?.medico_id);
