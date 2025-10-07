@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { supabase } from '../config/database.js';
 import { ApiResponse } from '../types/index.js';
+import { EmailService } from '../services/email.service.js';
 
 export class ConsultaController {
   // Obtener todas las consultas con filtros
@@ -301,6 +302,48 @@ export class ConsultaController {
           error: { message: 'Error al crear consulta' }
         } as ApiResponse<null>);
         return;
+      }
+
+      // Enviar emails de confirmación
+      try {
+        // Obtener datos del paciente y médico
+        const { data: pacienteData } = await supabase
+          .from('pacientes')
+          .select('nombres, apellidos, email')
+          .eq('id', consultaData.paciente_id)
+          .single();
+
+        const { data: medicoData } = await supabase
+          .from('medicos')
+          .select('nombres, apellidos, email')
+          .eq('id', consultaData.medico_id)
+          .single();
+
+        if (pacienteData?.email && medicoData?.email) {
+          const emailService = new EmailService();
+          
+          const consultaInfo = {
+            pacienteNombre: `${pacienteData.nombres} ${pacienteData.apellidos}`,
+            medicoNombre: `${medicoData.nombres} ${medicoData.apellidos}`,
+            fecha: new Date(consultaData.fecha_pautada).toLocaleDateString('es-ES'),
+            hora: consultaData.hora_pautada,
+            motivo: consultaData.motivo_consulta,
+            tipo: consultaData.tipo_consulta,
+            duracion: consultaData.duracion_estimada
+          };
+
+          // Enviar emails en paralelo
+          const emailResults = await emailService.sendConsultaConfirmation(
+            pacienteData.email,
+            medicoData.email,
+            consultaInfo
+          );
+
+          console.log('📧 Emails enviados:', emailResults);
+        }
+      } catch (emailError) {
+        console.error('Error enviando emails:', emailError);
+        // No fallar la creación de consulta si falla el email
       }
 
       res.status(201).json({

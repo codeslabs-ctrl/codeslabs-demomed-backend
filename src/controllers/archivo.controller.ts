@@ -8,7 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 // Configuración de multer para subida de archivos
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
-    const uploadDir = 'uploads/archivos';
+    const uploadDir = 'uploads/historias';
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
     }
@@ -23,7 +23,8 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB límite
+    fileSize: 10 * 1024 * 1024, // 10MB límite por archivo
+    files: 5 // Máximo 5 archivos
   },
   fileFilter: (_req, file, cb) => {
     // Permitir solo ciertos tipos de archivos
@@ -39,21 +40,31 @@ const upload = multer({
   }
 });
 
-export const uploadMiddleware = upload.single('archivo');
+export const uploadMiddleware = upload.array('archivos', 5); // Máximo 5 archivos
 
 export class ArchivoController {
-  // Subir archivo
+  // Subir archivos (múltiples)
   static async uploadArchivo(req: Request, res: Response): Promise<void> {
     try {
-      if (!req.file) {
+      const files = req.files as Express.Multer.File[];
+      
+      if (!files || files.length === 0) {
         res.status(400).json({
           success: false,
-          error: { message: 'No se proporcionó ningún archivo' }
+          error: { message: 'No se proporcionaron archivos' }
         });
         return;
       }
 
-      const { historia_id, descripcion } = req.body;
+      if (files.length > 5) {
+        res.status(400).json({
+          success: false,
+          error: { message: 'Máximo 5 archivos permitidos' }
+        });
+        return;
+      }
+
+      const { historia_id, descripciones } = req.body;
 
       if (!historia_id) {
         res.status(400).json({
@@ -78,37 +89,52 @@ export class ArchivoController {
         return;
       }
 
-      // Insertar registro en la base de datos
+      // Parsear descripciones si vienen como JSON string
+      let descripcionesArray: string[] = [];
+      if (descripciones) {
+        try {
+          descripcionesArray = typeof descripciones === 'string' 
+            ? JSON.parse(descripciones) 
+            : descripciones;
+        } catch (e) {
+          descripcionesArray = [descripciones];
+        }
+      }
+
+      // Preparar datos para insertar
+      const archivosData = files.map((file, index) => ({
+        historia_id: parseInt(historia_id),
+        nombre_original: file.originalname,
+        nombre_archivo: file.filename,
+        ruta_archivo: file.path,
+        tipo_mime: file.mimetype,
+        tamano_bytes: file.size,
+        descripcion: descripcionesArray[index] || null
+      }));
+
+      // Insertar todos los archivos en la base de datos
       const { data, error } = await supabase
         .from('archivos_anexos')
-        .insert({
-          historia_id: parseInt(historia_id),
-          nombre_original: req.file.originalname,
-          nombre_archivo: req.file.filename,
-          ruta_archivo: req.file.path,
-          tipo_mime: req.file.mimetype,
-          tamano_bytes: req.file.size,
-          descripcion: descripcion || null
-        })
-        .select()
-        .single();
+        .insert(archivosData)
+        .select();
 
       if (error) {
-        console.error('Error inserting archivo:', error);
+        console.error('Error inserting archivos:', error);
         res.status(500).json({
           success: false,
-          error: { message: 'Error al guardar el archivo en la base de datos' }
+          error: { message: 'Error al guardar los archivos en la base de datos' }
         });
         return;
       }
 
       res.json({
         success: true,
-        data: data
+        data: data,
+        message: `${files.length} archivo(s) subido(s) exitosamente`
       });
 
     } catch (error) {
-      console.error('Error uploading archivo:', error);
+      console.error('Error uploading archivos:', error);
       res.status(500).json({
         success: false,
         error: { message: 'Error interno del servidor' }

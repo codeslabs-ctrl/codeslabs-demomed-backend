@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import { supabase } from '../config/database.js';
 import { ApiResponse } from '../types/index.js';
+import { EmailService } from '../services/email.service.js';
+import bcrypt from 'bcrypt';
 
 export class MedicoController {
 
@@ -78,11 +80,21 @@ export class MedicoController {
     }
   }
 
-  async createMedico(req: Request<{}, ApiResponse, { nombres: string; apellidos: string; email: string; telefono: string; especialidad_id: number }>, res: Response<ApiResponse>): Promise<void> {
+  async createMedico(req: Request<{}, ApiResponse, { nombres: string; apellidos: string; cedula?: string; email: string; telefono: string; especialidad_id: number }>, res: Response<ApiResponse>): Promise<void> {
     try {
-      const { nombres, apellidos, email, telefono, especialidad_id } = req.body;
+      console.log('📥 Datos recibidos en createMedico:', req.body);
+      const { nombres, apellidos, cedula, email, telefono, especialidad_id } = req.body;
+
+      console.log('🔍 Validando campos:');
+      console.log('  - nombres:', nombres, typeof nombres);
+      console.log('  - apellidos:', apellidos, typeof apellidos);
+      console.log('  - cedula:', cedula, typeof cedula);
+      console.log('  - email:', email, typeof email);
+      console.log('  - telefono:', telefono, typeof telefono);
+      console.log('  - especialidad_id:', especialidad_id, typeof especialidad_id);
 
       if (!nombres || !apellidos || !email || !telefono || !especialidad_id) {
+        console.log('❌ Validación falló - campos faltantes');
         const response: ApiResponse = {
           success: false,
           error: { message: 'All fields are required' }
@@ -91,6 +103,23 @@ export class MedicoController {
         return;
       }
 
+      // Verificar si el email ya existe
+      const { data: existingMedico } = await supabase
+        .from('medicos')
+        .select('id')
+        .eq('email', email)
+        .single();
+
+      if (existingMedico) {
+        const response: ApiResponse = {
+          success: false,
+          error: { message: 'Email already exists' }
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      // Crear el médico
       const { data: newMedico, error: createError } = await supabase
         .from('medicos')
         .insert({ nombres, apellidos, email, telefono, especialidad_id })
@@ -101,9 +130,89 @@ export class MedicoController {
         throw new Error(`Database error: ${createError.message}`);
       }
 
+      // Generar username del email (parte antes del @)
+      const username = email.split('@')[0];
+      
+      if (!username) {
+        throw new Error('Email inválido: no se puede generar username');
+      }
+      
+      // Generar OTP de 8 dígitos
+      const otp = Math.floor(10000000 + Math.random() * 90000000).toString();
+      
+      // Hash del OTP
+      const hashedOtp = await bcrypt.hash(otp, 10);
+      
+      // Crear usuario con OTP temporal
+      const { data: newUser, error: userError } = await supabase
+        .from('usuarios')
+        .insert({
+          username,
+          email,
+          password_hash: hashedOtp,
+          rol: 'medico',
+          medico_id: newMedico.id,
+          first_login: true,
+          password_changed_at: null
+        })
+        .select()
+        .single();
+
+      if (userError) {
+        // Si falla la creación del usuario, eliminar el médico creado
+        await supabase
+          .from('medicos')
+          .delete()
+          .eq('id', newMedico.id);
+        
+        throw new Error(`User creation error: ${userError.message}`);
+      }
+
+      // Enviar email con OTP
+      console.log('🚀 INICIANDO PROCESO DE EMAIL...');
+      try {
+        console.log('📧 Intentando enviar email a:', email);
+        console.log('📧 Username generado:', username);
+        console.log('📧 OTP generado:', otp);
+        
+        const emailService = new EmailService();
+        const emailSent = await emailService.sendMedicoWelcomeEmail(
+          email,
+          {
+            nombre: `${nombres} ${apellidos}`,
+            username,
+            userEmail: email,
+            otp,
+            expiresIn: '24 horas'
+          }
+        );
+
+        if (emailSent) {
+          console.log('✅ Email enviado exitosamente');
+        } else {
+          console.warn('⚠️ Email no enviado, pero médico y usuario creados correctamente');
+        }
+      } catch (emailError) {
+        console.error('❌ Error enviando email:', emailError);
+        console.error('❌ Detalles del error:', (emailError as Error).message);
+        // No fallar la creación si falla el email
+      }
+
+      console.log('🏁 FINALIZANDO PROCESO DE EMAIL...');
+
       const response: ApiResponse = {
         success: true,
-        data: newMedico
+        data: {
+          medico: newMedico,
+          usuario: {
+            id: newUser.id,
+            username: newUser.username,
+            email: newUser.email,
+            rol: newUser.rol,
+            first_login: newUser.first_login
+          },
+          message: 'Médico creado exitosamente. Se ha enviado un OTP por email para el primer acceso.'
+        }
       };
       res.status(201).json(response);
     } catch (error) {

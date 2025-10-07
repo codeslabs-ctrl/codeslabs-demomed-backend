@@ -3,6 +3,15 @@ import { PatientService } from '../services/patient.service.js';
 import { ApiResponse } from '../types/index.js';
 import { supabase } from '../config/database.js';
 
+interface AuthenticatedRequest extends Request {
+  user?: {
+    userId: number;
+    username: string;
+    rol: string;
+    medico_id?: number;
+  };
+}
+
 export class PatientController {
   private patientService: PatientService;
 
@@ -34,9 +43,18 @@ export class PatientController {
     }
   }
 
-  async getPatientById(req: Request<{ id: string }>, res: Response<ApiResponse>): Promise<void> {
+  async getPatientById(req: AuthenticatedRequest, res: Response<ApiResponse>): Promise<void> {
     try {
       const { id } = req.params;
+      
+      if (!id) {
+        const response: ApiResponse = {
+          success: false,
+          error: { message: 'ID del paciente es requerido' }
+        };
+        res.status(400).json(response);
+        return;
+      }
       
       const patient = await this.patientService.getPatientById(id);
 
@@ -63,9 +81,18 @@ export class PatientController {
     }
   }
 
-  async getPatientByEmail(req: Request<{ email: string }>, res: Response<ApiResponse>): Promise<void> {
+  async getPatientByEmail(req: AuthenticatedRequest, res: Response<ApiResponse>): Promise<void> {
     try {
       const { email } = req.params;
+      
+      if (!email) {
+        const response: ApiResponse = {
+          success: false,
+          error: { message: 'Email del paciente es requerido' }
+        };
+        res.status(400).json(response);
+        return;
+      }
       
       const patient = await this.patientService.getPatientByEmail(email);
 
@@ -92,11 +119,24 @@ export class PatientController {
     }
   }
 
-  async createPatient(req: Request<{}, ApiResponse, any>, res: Response<ApiResponse>): Promise<void> {
+  async createPatient(req: AuthenticatedRequest, res: Response<ApiResponse>): Promise<void> {
     try {
       const patientData = req.body;
+      console.log('🔍 Backend - Datos del paciente recibidos:', JSON.stringify(patientData, null, 2));
       
-      const patient = await this.patientService.createPatient(patientData);
+        // Obtener el medico_id del token JWT para el historial médico
+        const user = (req as any).user;
+        console.log('🔍 Backend - Usuario del token:', user);
+        
+        if (user && user.medico_id) {
+          // El medico_id se usará para el historial médico, no para el paciente
+          console.log('✅ Backend - Medico ID disponible para historial:', user.medico_id);
+        } else {
+          console.log('⚠️ Backend - No se encontró medico_id en el token');
+        }
+      
+      const patient = await this.patientService.createPatient(patientData, user?.medico_id);
+      console.log('✅ Backend - Paciente creado exitosamente:', patient);
 
       const response: ApiResponse = {
         success: true,
@@ -107,6 +147,10 @@ export class PatientController {
       };
       res.status(201).json(response);
     } catch (error) {
+      console.error('❌ Backend - Error creando paciente:', error);
+      console.error('❌ Backend - Error message:', (error as Error).message);
+      console.error('❌ Backend - Error stack:', (error as Error).stack);
+      
       const response: ApiResponse = {
         success: false,
         error: { message: (error as Error).message }
@@ -115,10 +159,19 @@ export class PatientController {
     }
   }
 
-  async updatePatient(req: Request<{ id: string }, ApiResponse, any>, res: Response<ApiResponse>): Promise<void> {
+  async updatePatient(req: AuthenticatedRequest, res: Response<ApiResponse>): Promise<void> {
     try {
       const { id } = req.params;
       const patientData = req.body;
+      
+      if (!id) {
+        const response: ApiResponse = {
+          success: false,
+          error: { message: 'ID del paciente es requerido' }
+        };
+        res.status(400).json(response);
+        return;
+      }
       
       const patient = await this.patientService.updatePatient(id, patientData);
 
@@ -139,9 +192,18 @@ export class PatientController {
     }
   }
 
-  async deletePatient(req: Request<{ id: string }>, res: Response<ApiResponse>): Promise<void> {
+  async deletePatient(req: AuthenticatedRequest, res: Response<ApiResponse>): Promise<void> {
     try {
       const { id } = req.params;
+      
+      if (!id) {
+        const response: ApiResponse = {
+          success: false,
+          error: { message: 'ID del paciente es requerido' }
+        };
+        res.status(400).json(response);
+        return;
+      }
       
       const success = await this.patientService.deletePatient(id);
 

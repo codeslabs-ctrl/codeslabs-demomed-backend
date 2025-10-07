@@ -36,26 +36,60 @@ export class PatientService {
     }
   }
 
-  async createPatient(patientData: Omit<PatientData, 'id' | 'fecha_creacion' | 'fecha_actualizacion'>): Promise<PatientData> {
+  async createPatient(patientData: Omit<PatientData, 'id' | 'fecha_creacion' | 'fecha_actualizacion'>, medicoId?: number): Promise<PatientData> {
     try {
+      console.log('🔍 PatientService - Validando datos del paciente:', patientData);
+      
       // Validate required fields
       if (!patientData.nombres || !patientData.apellidos || !patientData.edad || !patientData.sexo) {
+        console.error('❌ PatientService - Campos requeridos faltantes:', {
+          nombres: patientData.nombres,
+          apellidos: patientData.apellidos,
+          edad: patientData.edad,
+          sexo: patientData.sexo
+        });
         throw new Error('Missing required fields: nombres, apellidos, edad, sexo');
       }
 
       // Validate age
       if (patientData.edad < 0 || patientData.edad > 150) {
+        console.error('❌ PatientService - Edad inválida:', patientData.edad);
         throw new Error('Age must be between 0 and 150');
       }
 
       // Validate sex
       const validSexes = ['Masculino', 'Femenino', 'Otro'];
       if (!validSexes.includes(patientData.sexo)) {
+        console.error('❌ PatientService - Sexo inválido:', patientData.sexo);
         throw new Error('Sex must be one of: Masculino, Femenino, Otro');
       }
 
-      return await this.patientRepository.create(patientData);
+      // Separar datos del paciente de los datos médicos
+      const { motivo_consulta, diagnostico, conclusiones, plan, ...patientBasicData } = patientData;
+      
+      console.log('✅ PatientService - Validaciones pasadas, iniciando transacción...');
+      
+      // Usar transacción para garantizar integridad de datos
+      const { data: result, error: transactionError } = await supabase.rpc('create_patient_with_history', {
+        patient_data: patientBasicData,
+        medical_data: {
+          motivo_consulta: motivo_consulta || null,
+          diagnostico: diagnostico || null,
+          conclusiones: conclusiones || null,
+          plan: plan || null,
+          medico_id: medicoId || null
+        }
+      });
+
+      if (transactionError) {
+        console.error('❌ PatientService - Error en transacción:', transactionError);
+        throw new Error(`Transaction failed: ${transactionError.message}`);
+      }
+
+      console.log('✅ PatientService - Transacción completada exitosamente:', result);
+      return result;
     } catch (error) {
+      console.error('❌ PatientService - Error en createPatient:', error);
       throw new Error(`Failed to create patient: ${(error as Error).message}`);
     }
   }

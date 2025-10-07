@@ -85,6 +85,9 @@ export class SupabaseRepository<T = any> implements BaseRepository<T> {
 
   async create(data: Partial<T>): Promise<T> {
     try {
+      console.log('🔍 BaseRepository - Insertando datos en tabla:', this.tableName);
+      console.log('🔍 BaseRepository - Datos a insertar:', JSON.stringify(data, null, 2));
+      
       const { data: result, error } = await this.client
         .from(this.tableName)
         .insert([data])
@@ -92,11 +95,18 @@ export class SupabaseRepository<T = any> implements BaseRepository<T> {
         .single();
 
       if (error) {
+        console.error('❌ BaseRepository - Error de base de datos:', error);
+        console.error('❌ BaseRepository - Error code:', error.code);
+        console.error('❌ BaseRepository - Error message:', error.message);
+        console.error('❌ BaseRepository - Error details:', error.details);
+        console.error('❌ BaseRepository - Error hint:', error.hint);
         throw new Error(`Database error: ${error.message}`);
       }
 
+      console.log('✅ BaseRepository - Registro creado exitosamente:', result);
       return result;
     } catch (error) {
+      console.error('❌ BaseRepository - Error en create:', error);
       throw new Error(`Failed to create record: ${(error as Error).message}`);
     }
   }

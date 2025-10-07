@@ -45,6 +45,12 @@ export interface Config {
     origin: string;
     credentials: boolean;
   };
+  email: {
+    user: string;
+    password: string;
+    service: string;
+    from: string;
+  };
 }
 
 // Auth Types

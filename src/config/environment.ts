@@ -28,6 +28,14 @@ export const config: Config = {
   cors: {
     origin: process.env['CORS_ORIGIN'] || 'http://localhost:4200',
     credentials: process.env['CORS_CREDENTIALS'] === 'true'
+  },
+  
+  // Email configuration
+  email: {
+    user: process.env['EMAIL_USER'] || '',
+    password: process.env['EMAIL_PASSWORD'] || '',
+    service: process.env['EMAIL_SERVICE'] || 'gmail',
+    from: process.env['EMAIL_FROM'] || 'FemiMed <femimed.app@gmail.com>'
   }
 };
 

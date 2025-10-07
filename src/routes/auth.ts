@@ -1,6 +1,7 @@
 import express from 'express';
 import { AuthController } from '../controllers/auth.controller.js';
 import { validateRequest } from '../middleware/validation.js';
+import { authenticateToken } from '../middleware/auth.js';
 import { 
   SignUpRequest, 
   SignInRequest, 
@@ -38,6 +39,16 @@ const authSchemas = {
     email: Joi.string().email().required()
   }),
   
+  regenerateOTP: Joi.object({
+    email: Joi.string().email().required()
+  }),
+  
+  changePassword: Joi.object({
+    currentPassword: Joi.string().optional().allow(''),
+    newPassword: Joi.string().min(6).required(),
+    isFirstLogin: Joi.boolean().optional()
+  }),
+  
   updateUser: Joi.object<UpdateUserRequest>({
     email: Joi.string().email().optional(),
     password: Joi.string().min(6).optional(),
@@ -53,5 +64,7 @@ router.post('/signout', (req, res) => authController.signOut(req, res));
 router.get('/user', (req, res) => authController.getCurrentUser(req, res));
 router.put('/user', validateRequest(authSchemas.updateUser), (req, res) => authController.updateUser(req, res));
 router.post('/reset-password', validateRequest(authSchemas.resetPassword), (req, res) => authController.resetPassword(req, res));
+router.post('/regenerate-otp', validateRequest(authSchemas.regenerateOTP), (req, res) => authController.regenerateOTP(req, res));
+router.post('/change-password', authenticateToken, validateRequest(authSchemas.changePassword), (req, res) => authController.changePassword(req, res));
 
 export default router;

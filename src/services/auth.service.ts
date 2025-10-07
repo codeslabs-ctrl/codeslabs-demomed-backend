@@ -71,7 +71,9 @@ export class AuthService {
           password_hash,
           rol,
           medico_id,
-          activo
+          activo,
+          first_login,
+          password_changed_at
         `)
         .eq('username', username)
         .eq('activo', true)
@@ -106,7 +108,9 @@ export class AuthService {
         username: userData.username,
         email: userData.email,
         rol: userData.rol,
-        medico_id: userData.medico_id
+        medico_id: userData.medico_id,
+        first_login: userData.first_login,
+        password_changed_at: userData.password_changed_at
       };
 
       return {
@@ -126,6 +130,57 @@ export class AuthService {
       }
     } catch (error) {
       throw new Error(`Sign out failed: ${(error as Error).message}`);
+    }
+  }
+
+  async changePassword(userId: number, currentPassword: string, newPassword: string): Promise<{ success: boolean; message: string }> {
+    try {
+      // Verificar que el usuario existe y obtener su contraseña actual
+      const { data: userData, error: userError } = await supabase
+        .from('usuarios')
+        .select('password_hash, first_login')
+        .eq('id', userId)
+        .single();
+
+      if (userError || !userData) {
+        throw new Error('Usuario no encontrado');
+      }
+
+      // Solo verificar contraseña actual si NO es el primer login
+      if (!userData.first_login) {
+        const isValidPassword = await bcrypt.compare(currentPassword, userData.password_hash);
+        if (!isValidPassword) {
+          throw new Error('Contraseña actual incorrecta');
+        }
+      }
+
+      // Encriptar nueva contraseña
+      const saltRounds = 10;
+      const newPasswordHash = await bcrypt.hash(newPassword, saltRounds);
+
+      // Actualizar contraseña y marcar que ya no es primer login
+      const { error: updateError } = await supabase
+        .from('usuarios')
+        .update({
+          password_hash: newPasswordHash,
+          first_login: false,
+          password_changed_at: new Date().toISOString()
+        })
+        .eq('id', userId);
+
+      if (updateError) {
+        throw new Error(`Error actualizando contraseña: ${updateError.message}`);
+      }
+
+      return {
+        success: true,
+        message: 'Contraseña actualizada exitosamente'
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: (error as Error).message
+      };
     }
   }
 

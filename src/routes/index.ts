@@ -12,6 +12,7 @@ import viewsRoutes from './views.js';
 import consultaRoutes from './consultas.js';
 import archivoRoutes from './archivos.js';
 import mensajeRoutes from './mensajes.js';
+import authRecoveryRoutes from './auth-recovery.js';
 import { ApiResponse } from '../types/index.js';
 
 const router = express.Router();
@@ -35,6 +36,7 @@ router.get('/', (_req: Request, res: Response) => {
             consultas: '/consultas',
             archivos: '/archivos',
             mensajes: '/mensajes',
+            authRecovery: '/auth-recovery',
             views: '/views',
             data: '/data',
             supabase: '/supabase',
@@ -73,6 +75,7 @@ router.use('/especialidades', especialidadRoutes);
 router.use('/consultas', consultaRoutes);
 router.use('/archivos', archivoRoutes);
 router.use('/mensajes', mensajeRoutes);
+router.use('/auth-recovery', authRecoveryRoutes);
 router.use('/views', viewsRoutes);
 router.use('/data', dataRoutes);
 router.use('/supabase', supabaseRoutes);
