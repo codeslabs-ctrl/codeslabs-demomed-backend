@@ -5,6 +5,8 @@ import {
   UpdateRemisionStatusRequest,
   RemisionWithDetails 
 } from '../models/remision.model.js';
+import { EmailService } from './email.service.js';
+import { supabase } from '../config/database.js';
 
 export class RemisionService {
   private remisionRepository: RemisionRepository;
@@ -15,6 +17,11 @@ export class RemisionService {
 
   async createRemision(remisionData: CreateRemisionRequest): Promise<RemisionData> {
     try {
+      console.log('🔍 Creating remision with data:', remisionData);
+      console.log('🔍 Paciente ID type:', typeof remisionData.paciente_id, 'value:', remisionData.paciente_id);
+      console.log('🔍 Medico remitente ID:', remisionData.medico_remitente_id);
+      console.log('🔍 Medico remitido ID:', remisionData.medico_remitido_id);
+      
       // Validar datos requeridos
       if (!remisionData.paciente_id || !remisionData.medico_remitente_id || 
           !remisionData.medico_remitido_id || !remisionData.motivo_remision) {
@@ -37,7 +44,35 @@ export class RemisionService {
         fecha_remision: new Date().toISOString()
       };
 
-      return await this.remisionRepository.createRemision(newRemisionData);
+      // Crear la remisión en la base de datos
+      const createdRemision = await this.remisionRepository.createRemision(newRemisionData);
+
+      // Crear objeto RemisionData completo para las funciones auxiliares
+      const remisionDataComplete: RemisionData = {
+        ...remisionData,
+        estado_remision: 'Pendiente',
+        fecha_remision: new Date().toISOString()
+      };
+
+      // Crear consulta automáticamente
+      try {
+        await this.createConsultaFromRemision(remisionDataComplete);
+        console.log('✅ Consulta creada automáticamente desde remisión');
+      } catch (consultaError) {
+        console.error('❌ Error creando consulta desde remisión:', consultaError);
+        // No fallar la creación de remisión si falla la consulta
+      }
+
+      // Enviar email de notificación al médico remitido
+      try {
+        await this.sendRemisionNotificationEmail(remisionDataComplete);
+        console.log('✅ Email de remisión enviado exitosamente');
+      } catch (emailError) {
+        console.error('❌ Error enviando email de remisión:', emailError);
+        // No fallar la creación de remisión si falla el email
+      }
+
+      return createdRemision;
     } catch (error) {
       throw new Error(`Failed to create remision: ${(error as Error).message}`);
     }
@@ -168,6 +203,150 @@ export class RemisionService {
       return statistics;
     } catch (error) {
       throw new Error(`Failed to get remisiones statistics: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Envía email de notificación de remisión al médico remitido
+   */
+  private async sendRemisionNotificationEmail(remision: RemisionData): Promise<void> {
+    try {
+      // Validar que el paciente_id sea un número válido
+      if (!remision.paciente_id || isNaN(Number(remision.paciente_id))) {
+        throw new Error(`ID de paciente inválido: ${remision.paciente_id}`);
+      }
+
+      // Obtener datos del paciente
+      console.log('🔍 Buscando paciente con ID:', remision.paciente_id, 'tipo:', typeof remision.paciente_id);
+      const { data: pacienteData, error: pacienteError } = await supabase
+        .from('pacientes')
+        .select('nombres, apellidos, edad, sexo')
+        .eq('id', Number(remision.paciente_id))
+        .single();
+
+      if (pacienteError) {
+        throw new Error(`Error obteniendo datos del paciente: ${pacienteError.message}`);
+      }
+
+      // Obtener datos del médico remitente
+      const { data: medicoRemitenteData, error: medicoRemitenteError } = await supabase
+        .from('medicos')
+        .select('nombres, apellidos, email, especialidad_id')
+        .eq('id', remision.medico_remitente_id)
+        .single();
+
+      if (medicoRemitenteError) {
+        throw new Error(`Error obteniendo datos del médico remitente: ${medicoRemitenteError.message}`);
+      }
+
+      // Obtener datos del médico remitido
+      const { data: medicoRemitidoData, error: medicoRemitidoError } = await supabase
+        .from('medicos')
+        .select('nombres, apellidos, email')
+        .eq('id', remision.medico_remitido_id)
+        .single();
+
+      if (medicoRemitidoError) {
+        throw new Error(`Error obteniendo datos del médico remitido: ${medicoRemitidoError.message}`);
+      }
+
+      // Obtener especialidad del médico remitente
+      const { data: especialidadData, error: especialidadError } = await supabase
+        .from('especialidades')
+        .select('nombre_especialidad')
+        .eq('id', medicoRemitenteData.especialidad_id)
+        .single();
+
+      if (especialidadError) {
+        console.warn('⚠️ No se pudo obtener la especialidad del médico remitente');
+      }
+
+      // Preparar datos para el email
+      const emailData = {
+        pacienteNombre: pacienteData.nombres,
+        pacienteApellidos: pacienteData.apellidos,
+        pacienteEdad: pacienteData.edad,
+        pacienteSexo: pacienteData.sexo,
+        medicoRemitenteNombre: medicoRemitenteData.nombres,
+        medicoRemitenteApellidos: medicoRemitenteData.apellidos,
+        medicoRemitenteEspecialidad: especialidadData?.nombre_especialidad || 'Especialidad no especificada',
+        motivoRemision: remision.motivo_remision,
+        observaciones: remision.observaciones || 'No hay observaciones adicionales',
+        fechaRemision: remision.fecha_remision ? 
+          new Date(remision.fecha_remision).toLocaleDateString('es-ES', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          }) : 
+          new Date().toLocaleDateString('es-ES', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          })
+      };
+
+      // Enviar email
+      const emailService = new EmailService();
+      const emailSent = await emailService.sendRemisionNotification(
+        medicoRemitidoData.email,
+        emailData
+      );
+
+      if (!emailSent) {
+        throw new Error('No se pudo enviar el email de notificación');
+      }
+
+      console.log(`📧 Email de remisión enviado a: ${medicoRemitidoData.email}`);
+    } catch (error) {
+      console.error('❌ Error en sendRemisionNotificationEmail:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Crea una consulta automáticamente desde una remisión
+   */
+  private async createConsultaFromRemision(remision: RemisionData): Promise<void> {
+    try {
+      console.log('🔍 Creando consulta desde remisión:', remision.id);
+
+      // Preparar datos de la consulta
+             const consultaData = {
+               paciente_id: remision.paciente_id,
+               medico_id: remision.medico_remitido_id,
+               medico_remitente_id: remision.medico_remitente_id,
+               motivo_consulta: remision.motivo_remision,
+               tipo_consulta: 'seguimiento' as const,
+               estado_consulta: 'por_agendar' as const,
+               fecha_pautada: new Date().toISOString().split('T')[0], // Fecha actual
+               hora_pautada: '00:00:00', // Hora por defecto en lugar de NULL
+               duracion_estimada: 30,
+               prioridad: 'normal' as const,
+               observaciones: `Consulta generada automáticamente por remisión. ${remision.observaciones || ''}`,
+               recordatorio_enviado: false
+             };
+
+      console.log('🔍 Datos de consulta a crear:', consultaData);
+
+      // Crear la consulta en la base de datos
+      const { data: consulta, error } = await supabase
+        .from('consultas_pacientes')
+        .insert([consultaData])
+        .select()
+        .single();
+
+      if (error) {
+        throw new Error(`Error creando consulta: ${error.message}`);
+      }
+
+      console.log('✅ Consulta creada exitosamente:', consulta.id);
+    } catch (error) {
+      console.error('❌ Error en createConsultaFromRemision:', error);
+      throw error;
     }
   }
 }

@@ -54,17 +54,43 @@ export class MedicoController {
 
   async getAllMedicos(_req: Request, res: Response<ApiResponse>): Promise<void> {
     try {
-      const { data, error } = await supabase
+      // Obtener médicos
+      const { data: medicos, error: medicosError } = await supabase
         .from('medicos')
         .select('*')
         .order('nombres', { ascending: true });
 
-      if (error) {
-        throw new Error(`Database error: ${error.message}`);
+      if (medicosError) {
+        throw new Error(`Database error: ${medicosError.message}`);
       }
 
-      // Por ahora, devolver los médicos sin el join de especialidades
-      const medicosWithEspecialidad = data || [];
+      // Obtener especialidades
+      const { data: especialidades, error: especialidadesError } = await supabase
+        .from('especialidades')
+        .select('id, nombre_especialidad');
+
+      if (especialidadesError) {
+        throw new Error(`Database error: ${especialidadesError.message}`);
+      }
+
+      // Crear un mapa de especialidades para búsqueda rápida
+      const especialidadesMap = new Map();
+      especialidades?.forEach(esp => {
+        especialidadesMap.set(esp.id, esp.nombre_especialidad);
+      });
+
+      console.log('🔍 Especialidades encontradas:', especialidades);
+      console.log('🔍 Mapa de especialidades:', especialidadesMap);
+
+      // Combinar médicos con nombres de especialidades
+      const medicosWithEspecialidad = medicos?.map(medico => {
+        const especialidadNombre = especialidadesMap.get(medico.especialidad_id) || 'Especialidad no encontrada';
+        console.log(`🔍 Médico ${medico.nombres} - especialidad_id: ${medico.especialidad_id} -> ${especialidadNombre}`);
+        return {
+          ...medico,
+          especialidad_nombre: especialidadNombre
+        };
+      }) || [];
 
       const response: ApiResponse = {
         success: true,

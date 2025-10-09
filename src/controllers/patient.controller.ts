@@ -532,4 +532,26 @@ export class PatientController {
       res.status(400).json(response);
     }
   }
+
+  async getAdminStats(_req: Request, res: Response<ApiResponse>): Promise<void> {
+    try {
+      console.log('👑 Admin stats endpoint called');
+      
+      // Get all patients for admin (medicoId = null)
+      const patients = await this.patientService.getPatientsByMedicoForStats(null);
+
+      const response: ApiResponse = {
+        success: true,
+        data: patients
+      };
+      res.json(response);
+    } catch (error) {
+      console.error('❌ Admin stats error:', error);
+      const response: ApiResponse = {
+        success: false,
+        error: { message: (error as Error).message }
+      };
+      res.status(500).json(response);
+    }
+  }
 }

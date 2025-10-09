@@ -290,54 +290,59 @@ export class PatientService {
   // Método específico para estadísticas (sin paginación)
   async getPatientsByMedicoForStats(medicoId: number | null = null): Promise<PatientData[]> {
     try {
-      console.log('📊 Getting ALL patients for statistics, medico_id:', medicoId);
+      console.log('📊 Getting patients for statistics, medico_id:', medicoId);
 
-      // Use the SQL function with high limit to get all patients for statistics
-      const { data, error } = await supabase.rpc('get_pacientes_medico', {
-        p_medico_id: medicoId, // Can be null for admin (all patients)
-        p_page: 1,
-        p_limit: 10000, // High limit to get all patients
-        p_filters: {} // No filters for statistics
-      });
+      if (medicoId === null) {
+        // For admin: get all patients directly from the patients table
+        console.log('👑 Admin: Getting all patients for statistics');
+        const { data: allPatients, error: allPatientsError } = await supabase
+          .from('pacientes')
+          .select('*')
+          .order('fecha_creacion', { ascending: false });
 
-      if (error) {
-        console.error('❌ RPC function error for stats:', error);
-        console.error('❌ Error details:', {
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
-          code: error.code
-        });
+        if (allPatientsError) {
+          console.error('❌ Error getting all patients for admin:', allPatientsError);
+          throw new Error(`Failed to get all patients: ${allPatientsError.message}`);
+        }
+
+        console.log('✅ Admin: Retrieved', allPatients?.length || 0, 'patients');
+        return allPatients || [];
+      } else {
+        // For doctor: use the existing function
+        console.log('👨‍⚕️ Doctor: Getting patients for medico_id:', medicoId);
         
-        // Fallback to direct query if function fails
-        console.log('🔄 Function failed for stats, using fallback query');
-        if (medicoId) {
+        const { data, error } = await supabase.rpc('get_pacientes_medico', {
+          p_medico_id: medicoId,
+          p_page: 1,
+          p_limit: 10000, // High limit to get all patients
+          p_filters: {} // No filters for statistics
+        });
+
+        if (error) {
+          console.error('❌ RPC function error for doctor stats:', error);
+          console.log('🔄 Function failed for doctor stats, using fallback query');
           const fallbackResult = await this.getPatientsByMedicoFallback(medicoId);
           return fallbackResult.patients;
-        } else {
-          // For admin, fallback to getAllPatients
-          const allPatientsResult = await this.patientRepository.findAll();
-          return allPatientsResult.data;
         }
+
+        console.log('✅ Doctor: Retrieved', data?.length || 0, 'patients');
+        
+        // Extract patients for statistics
+        const patients = data?.map((item: any) => ({
+          id: item.id,
+          nombres: item.nombres,
+          apellidos: item.apellidos,
+          cedula: item.cedula,
+          edad: item.edad,
+          sexo: item.sexo,
+          email: item.email,
+          telefono: item.telefono,
+          fecha_creacion: item.fecha_creacion,
+          fecha_actualizacion: item.fecha_actualizacion
+        })) || [];
+
+        return patients;
       }
-
-      console.log('✅ RPC function result for stats:', data?.length, 'patients');
-      
-      // Extract patients for statistics
-      const patients = data?.map((item: any) => ({
-        id: item.id,
-        nombres: item.nombres,
-        apellidos: item.apellidos,
-        cedula: item.cedula,
-        edad: item.edad,
-        sexo: item.sexo,
-        email: item.email,
-        telefono: item.telefono,
-        fecha_creacion: item.fecha_creacion,
-        fecha_actualizacion: item.fecha_actualizacion
-      })) || [];
-
-      return patients;
     } catch (error) {
       console.error('❌ getPatientsByMedicoForStats error:', error);
       throw new Error(`Failed to get patients by medico for stats: ${(error as Error).message}`);

@@ -714,4 +714,163 @@ export class EmailService {
       `
     };
   }
+
+  /**
+   * Envía email de notificación de remisión al médico remitido
+   */
+  async sendRemisionNotification(
+    medicoRemitidoEmail: string,
+    remisionData: {
+      pacienteNombre: string;
+      pacienteApellidos: string;
+      pacienteEdad: number;
+      pacienteSexo: string;
+      medicoRemitenteNombre: string;
+      medicoRemitenteApellidos: string;
+      medicoRemitenteEspecialidad: string;
+      motivoRemision: string;
+      observaciones?: string;
+      fechaRemision: string;
+    }
+  ): Promise<boolean> {
+    try {
+      const template = this.getRemisionNotificationTemplate();
+      
+      const variables = {
+        pacienteNombre: remisionData.pacienteNombre,
+        pacienteApellidos: remisionData.pacienteApellidos,
+        pacienteEdad: remisionData.pacienteEdad,
+        pacienteSexo: remisionData.pacienteSexo,
+        medicoRemitenteNombre: remisionData.medicoRemitenteNombre,
+        medicoRemitenteApellidos: remisionData.medicoRemitenteApellidos,
+        medicoRemitenteEspecialidad: remisionData.medicoRemitenteEspecialidad,
+        motivoRemision: remisionData.motivoRemision,
+        observaciones: remisionData.observaciones || 'No hay observaciones adicionales',
+        fechaRemision: remisionData.fechaRemision
+      };
+
+      return await this.sendTemplateEmail(
+        medicoRemitidoEmail,
+        template,
+        variables,
+        {
+          priority: 'high'
+        }
+      );
+    } catch (error) {
+      console.error('❌ Error enviando email de remisión:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Template para email de notificación de remisión
+   */
+  private getRemisionNotificationTemplate(): EmailTemplate {
+    return {
+      subject: 'Nueva Interconsulta de Paciente - FemiMed',
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Nueva Remisión de Paciente</title>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+            .container { max-width: 600px; margin: 0 auto; background: #fff; }
+            .header { background: linear-gradient(135deg, #E91E63, #C2185B); color: white; padding: 2rem; text-align: center; }
+            .header h1 { margin: 0; font-size: 1.8rem; }
+            .content { padding: 2rem; }
+            .patient-info { background: #f8f9fa; border-left: 4px solid #E91E63; padding: 1.5rem; margin: 1rem 0; border-radius: 0 8px 8px 0; }
+            .medico-info { background: #e3f2fd; border-left: 4px solid #2196F3; padding: 1.5rem; margin: 1rem 0; border-radius: 0 8px 8px 0; }
+            .remision-details { background: #fff3e0; border-left: 4px solid #FF9800; padding: 1.5rem; margin: 1rem 0; border-radius: 0 8px 8px 0; }
+            .footer { background: #f5f5f5; padding: 1rem; text-align: center; color: #666; font-size: 0.9rem; }
+            .btn { display: inline-block; background: #E91E63; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 1rem 0; }
+            .btn:hover { background: #C2185B; }
+            .highlight { background: #fff3cd; padding: 1rem; border-radius: 6px; border-left: 4px solid #ffc107; margin: 1rem 0; }
+            .info-row { display: flex; justify-content: space-between; margin: 0.5rem 0; }
+            .info-label { font-weight: bold; color: #555; }
+            .info-value { color: #333; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>🏥 Nueva Remisión de Paciente</h1>
+              <p>Ha recibido una nueva remisión de paciente en FemiMed</p>
+            </div>
+            
+            <div class="content">
+              <div class="highlight">
+                <h3>📋 Información del Paciente</h3>
+                <div class="patient-info">
+                  <div class="info-row">
+                    <span class="info-label">Nombre completo:</span>
+                    <span class="info-value">{{pacienteNombre}} {{pacienteApellidos}}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">Edad:</span>
+                    <span class="info-value">{{pacienteEdad}} años</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">Sexo:</span>
+                    <span class="info-value">{{pacienteSexo}}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="medico-info">
+                <h3>👨‍⚕️ Médico Remitente</h3>
+                <div class="info-row">
+                  <span class="info-label">Nombre:</span>
+                  <span class="info-value">Dr. {{medicoRemitenteNombre}} {{medicoRemitenteApellidos}}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Especialidad:</span>
+                  <span class="info-value">{{medicoRemitenteEspecialidad}}</span>
+                </div>
+              </div>
+
+              <div class="remision-details">
+                <h3>📝 Detalles de la Remisión</h3>
+                <div class="info-row">
+                  <span class="info-label">Motivo:</span>
+                  <span class="info-value">{{motivoRemision}}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Observaciones:</span>
+                  <span class="info-value">{{observaciones}}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Fecha de remisión:</span>
+                  <span class="info-value">{{fechaRemision}}</span>
+                </div>
+              </div>
+
+              <div style="text-align: center; margin: 2rem 0;">
+                <a href="#" class="btn">Ver Detalles en FemiMed</a>
+              </div>
+
+              <p><strong>Próximos pasos:</strong></p>
+              <ul>
+                <li>Revise la información del paciente en el sistema</li>
+                <li>Programe una consulta si es necesario</li>
+                <li>Actualice el estado de la remisión (Aceptada/Rechazada)</li>
+                <li>Mantenga comunicación con el médico remitente</li>
+              </ul>
+
+              <p>Por favor, acceda al sistema FemiMed para gestionar esta remisión y proporcionar la atención médica correspondiente.</p>
+            </div>
+            
+            <div class="footer">
+              <p>Sistema de Gestión Médica FemiMed</p>
+              <p>Este es un mensaje automático, por favor no responder a este email.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `
+    };
+  }
 }
