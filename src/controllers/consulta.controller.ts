@@ -247,6 +247,13 @@ export class ConsultaController {
       // Obtener información del usuario autenticado desde el token
       const user = (req as any).user;
       
+      console.log('🔍 getConsultasDelDia - Usuario autenticado:', {
+        userId: user?.userId,
+        username: user?.username,
+        rol: user?.rol,
+        medico_id: user?.medico_id
+      });
+      
       if (!user) {
         res.status(401).json({
           success: false,
@@ -261,8 +268,11 @@ export class ConsultaController {
         .order('hora_pautada', { ascending: true });
 
       // Si el usuario es médico, filtrar solo sus consultas
-      if (user.perfil === 'medico' && user.medico_id) {
+      if (user.rol === 'medico' && user.medico_id) {
+        console.log('🔍 Filtrando consultas por médico_id:', user.medico_id);
         query = query.eq('medico_id', user.medico_id);
+      } else {
+        console.log('🔍 Mostrando todas las consultas (administrador o sin médico_id)');
       }
       // Si es administrador, no aplicar filtro adicional (ver todas las consultas)
 
@@ -275,6 +285,16 @@ export class ConsultaController {
           error: { message: 'Error al obtener consultas del día' }
         } as ApiResponse<null>);
         return;
+      }
+
+      console.log('🔍 Consultas encontradas:', consultas?.length || 0);
+      if (consultas && consultas.length > 0) {
+        console.log('🔍 Primera consulta:', {
+          id: consultas[0].id,
+          paciente_nombre: consultas[0].paciente_nombre,
+          medico_id: consultas[0].medico_id,
+          medico_nombre: consultas[0].medico_nombre
+        });
       }
 
       res.json({
