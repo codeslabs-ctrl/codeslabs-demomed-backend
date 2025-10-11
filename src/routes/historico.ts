@@ -10,5 +10,6 @@ router.get('/by-paciente/:paciente_id', (req, res) => historicoController.getHis
 router.get('/by-paciente/:paciente_id/latest', (req, res) => historicoController.getLatestHistoricoByPaciente(req, res));
 router.get('/by-medico/:medico_id', (req, res) => historicoController.getHistoricoByMedico(req, res));
 router.get('/filtrado', (req, res) => historicoController.getHistoricoFiltrado(req, res));
+router.put('/:id', (req, res) => historicoController.updateHistorico(req, res));
 
 export default router;

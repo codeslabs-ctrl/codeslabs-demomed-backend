@@ -132,4 +132,66 @@ export class HistoricoService {
       throw new Error(`Failed to get latest historico by paciente: ${(error as Error).message}`);
     }
   }
+
+  async updateHistorico(historicoId: number, updateData: Partial<HistoricoData>): Promise<HistoricoWithDetails> {
+    try {
+      if (!historicoId || historicoId <= 0) {
+        throw new Error('Valid historico ID is required');
+      }
+
+      console.log('🔍 updateHistorico - historicoId:', historicoId);
+      console.log('🔍 updateHistorico - updateData:', updateData);
+
+      // Filtrar solo los campos que existen en la tabla historico_medico
+      const allowedFields = ['motivo_consulta', 'diagnostico', 'conclusiones', 'plan'];
+      const filteredData: any = {};
+      
+      for (const [key, value] of Object.entries(updateData)) {
+        if (allowedFields.includes(key)) {
+          filteredData[key] = value;
+        }
+      }
+
+      console.log('🔍 updateHistorico - filteredData:', filteredData);
+
+      // Actualizar en la tabla historico_pacientes
+      const { data, error } = await supabase
+        .from('historico_pacientes')
+        .update({
+          ...filteredData,
+          fecha_actualizacion: new Date().toISOString()
+        })
+        .eq('id', historicoId)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('❌ updateHistorico - Database error:', error);
+        throw new Error(`Database error: ${error.message}`);
+      }
+
+      if (!data) {
+        throw new Error('No historico found with the given ID');
+      }
+
+      console.log('✅ updateHistorico - Updated successfully:', data);
+
+      // Obtener los datos completos con joins
+      const { data: fullData, error: fullError } = await supabase
+        .from('vista_historico_por_paciente')
+        .select('*')
+        .eq('id', historicoId)
+        .single();
+
+      if (fullError) {
+        console.error('❌ updateHistorico - Error getting full data:', fullError);
+        throw new Error(`Database error getting full data: ${fullError.message}`);
+      }
+
+      return fullData;
+    } catch (error) {
+      console.error('❌ updateHistorico - Error:', error);
+      throw new Error(`Failed to update historico: ${(error as Error).message}`);
+    }
+  }
 }

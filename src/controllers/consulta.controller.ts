@@ -15,6 +15,7 @@ export class ConsultaController {
         fecha_hasta,
         prioridad,
         tipo_consulta,
+        search,
         page = 1,
         limit = 10
       } = req.query;
@@ -49,6 +50,11 @@ export class ConsultaController {
       }
       if (tipo_consulta) {
         query = query.eq('tipo_consulta', tipo_consulta);
+      }
+      
+      // Aplicar búsqueda de texto
+      if (search && typeof search === 'string') {
+        query = query.or(`motivo_consulta.ilike.%${search}%,paciente_nombre.ilike.%${search}%,paciente_apellidos.ilike.%${search}%,medico_nombre.ilike.%${search}%,medico_apellidos.ilike.%${search}%`);
       }
 
       const { data: consultas, error } = await query;
@@ -235,6 +241,56 @@ export class ConsultaController {
     }
   }
 
+  // Obtener consultas del día filtradas por usuario autenticado
+  static async getConsultasDelDia(req: Request, res: Response): Promise<void> {
+    try {
+      // Obtener información del usuario autenticado desde el token
+      const user = (req as any).user;
+      
+      if (!user) {
+        res.status(401).json({
+          success: false,
+          error: { message: 'Usuario no autenticado' }
+        } as ApiResponse<null>);
+        return;
+      }
+
+      let query = supabase
+        .from('vista_consultas_hoy')
+        .select('*')
+        .order('hora_pautada', { ascending: true });
+
+      // Si el usuario es médico, filtrar solo sus consultas
+      if (user.perfil === 'medico' && user.medico_id) {
+        query = query.eq('medico_id', user.medico_id);
+      }
+      // Si es administrador, no aplicar filtro adicional (ver todas las consultas)
+
+      const { data: consultas, error } = await query;
+
+      if (error) {
+        console.error('Error fetching consultas del día:', error);
+        res.status(500).json({
+          success: false,
+          error: { message: 'Error al obtener consultas del día' }
+        } as ApiResponse<null>);
+        return;
+      }
+
+      res.json({
+        success: true,
+        data: consultas || []
+      } as ApiResponse<typeof consultas>);
+
+    } catch (error) {
+      console.error('Error in getConsultasDelDia:', error);
+      res.status(500).json({
+        success: false,
+        error: { message: 'Error interno del servidor' }
+      } as ApiResponse<null>);
+    }
+  }
+
   // Obtener consultas pendientes
   static async getConsultasPendientes(_req: Request, res: Response): Promise<void> {
     try {
@@ -412,6 +468,9 @@ export class ConsultaController {
       const consultaId = parseInt(id || '0');
       const { motivo_cancelacion } = req.body;
 
+      console.log('🔍 Cancelar consulta - ID:', consultaId);
+      console.log('🔍 Cancelar consulta - Motivo:', motivo_cancelacion);
+
       if (isNaN(consultaId)) {
         res.status(400).json({
           success: false,
@@ -428,36 +487,63 @@ export class ConsultaController {
         return;
       }
 
+      console.log('🔄 Verificando si la consulta existe...');
+      
+      // Primero verificar que la consulta existe
+      const { data: consultaExistente, error: errorConsulta } = await supabase
+        .from('consultas_pacientes')
+        .select('id, estado_consulta')
+        .eq('id', consultaId)
+        .single();
+
+      if (errorConsulta) {
+        console.error('❌ Error verificando consulta:', errorConsulta);
+        res.status(404).json({
+          success: false,
+          error: { message: 'Consulta no encontrada', details: errorConsulta.message }
+        } as ApiResponse<null>);
+        return;
+      }
+
+      console.log('✅ Consulta encontrada:', consultaExistente);
+      console.log('🔄 Estado actual:', consultaExistente.estado_consulta);
+
+      // Actualizar el estado de la consulta a 'cancelada'
+      console.log('🔄 Actualizando estado a "cancelada"...');
       const { data: consulta, error } = await supabase
         .from('consultas_pacientes')
         .update({
-          estado_consulta: 'cancelada',
-          motivo_cancelacion,
-          fecha_cancelacion: new Date().toISOString()
+          estado_consulta: 'cancelada'
         })
         .eq('id', consultaId)
         .select()
         .single();
 
       if (error) {
-        console.error('Error canceling consulta:', error);
+        console.error('❌ Error actualizando consulta:', error);
         res.status(500).json({
           success: false,
-          error: { message: 'Error al cancelar consulta' }
+          error: { message: 'Error al cancelar consulta', details: error.message }
         } as ApiResponse<null>);
         return;
       }
 
+      console.log('✅ Consulta cancelada exitosamente:', consulta);
       res.json({
         success: true,
-        data: consulta
-      } as ApiResponse<typeof consulta>);
+        data: {
+          id: consultaId,
+          estado_consulta: 'cancelada',
+          motivo_cancelacion: motivo_cancelacion,
+          fecha_cancelacion: new Date().toISOString()
+        }
+      } as ApiResponse<any>);
 
     } catch (error) {
-      console.error('Error in cancelarConsulta:', error);
+      console.error('❌ Error in cancelarConsulta:', error);
       res.status(500).json({
         success: false,
-        error: { message: 'Error interno del servidor' }
+        error: { message: 'Error interno del servidor', details: (error as Error).message }
       } as ApiResponse<null>);
     }
   }

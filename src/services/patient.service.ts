@@ -22,7 +22,48 @@ export class PatientService {
 
   async getPatientById(id: string): Promise<PatientData | null> {
     try {
-      return await this.patientRepository.findById(id);
+      // Obtener datos básicos del paciente
+      const patient = await this.patientRepository.findById(id);
+      
+      if (!patient) {
+        return null;
+      }
+
+      // Obtener la información médica más reciente del paciente
+      const { data: historicoData, error: historicoError } = await supabase
+        .from('historico_pacientes')
+        .select('motivo_consulta, diagnostico, conclusiones, plan')
+        .eq('paciente_id', id)
+        .order('fecha_consulta', { ascending: false })
+        .limit(1);
+
+      console.log('🔍 Histórico médico consultado:', historicoData);
+      console.log('🔍 Error en histórico:', historicoError);
+
+      if (historicoError) {
+        console.error('❌ Error obteniendo historico médico:', historicoError);
+        // Si hay error, devolver solo los datos básicos del paciente
+        return patient;
+      }
+
+      // Si se encontró información médica, agregarla al paciente
+      if (historicoData && historicoData.length > 0) {
+        const latestHistoric = historicoData[0];
+        console.log('🔍 Datos médicos encontrados:', latestHistoric);
+        
+        // Verificar que latestHistoric existe antes de acceder a sus propiedades
+        if (latestHistoric) {
+          return {
+            ...patient,
+            motivo_consulta: latestHistoric.motivo_consulta || null,
+            diagnostico: latestHistoric.diagnostico || null,
+            conclusiones: latestHistoric.conclusiones || null,
+            plan: latestHistoric.plan || null
+          };
+        }
+      }
+
+      return patient;
     } catch (error) {
       throw new Error(`Failed to get patient: ${(error as Error).message}`);
     }

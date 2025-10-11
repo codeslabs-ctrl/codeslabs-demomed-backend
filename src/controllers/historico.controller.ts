@@ -157,4 +157,35 @@ export class HistoricoController {
       res.status(400).json(response);
     }
   }
+
+  async updateHistorico(req: Request<{ id: string }, ApiResponse>, res: Response<ApiResponse>): Promise<void> {
+    try {
+      const { id } = req.params;
+      const updateData = req.body;
+
+      const historicoId = parseInt(id);
+      if (isNaN(historicoId)) {
+        const response: ApiResponse = {
+          success: false,
+          error: { message: 'Invalid historico ID' }
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      const historico = await this.historicoService.updateHistorico(historicoId, updateData);
+
+      const response: ApiResponse = {
+        success: true,
+        data: historico
+      };
+      res.json(response);
+    } catch (error) {
+      const response: ApiResponse = {
+        success: false,
+        error: { message: (error as Error).message }
+      };
+      res.status(400).json(response);
+    }
+  }
 }
