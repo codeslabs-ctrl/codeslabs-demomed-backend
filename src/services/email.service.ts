@@ -84,6 +84,10 @@ export class EmailService {
     options: Partial<EmailOptions> = {}
   ): Promise<boolean> {
     try {
+      console.log('📧 sendTemplateEmail - Iniciando...');
+      console.log('📧 sendTemplateEmail - To:', to);
+      console.log('📧 sendTemplateEmail - Variables:', variables);
+
       // Reemplazar variables en el template
       let processedSubject = template.subject;
       let processedHtml = template.html;
@@ -100,13 +104,18 @@ export class EmailService {
         }
       });
 
-      return await this.sendEmail({
+      console.log('📧 sendTemplateEmail - Subject procesado:', processedSubject);
+
+      const result = await this.sendEmail({
         to,
         subject: processedSubject,
         html: processedHtml,
         text: processedText || '',
         ...options
       });
+
+      console.log('📧 sendTemplateEmail - Resultado:', result);
+      return result;
     } catch (error) {
       console.error('❌ Error procesando template de email:', error);
       return false;
@@ -147,6 +156,129 @@ export class EmailService {
       consultaData
     );
 
+    return results;
+  }
+
+  /**
+   * Envía email de reagendamiento de consulta
+   */
+  async sendConsultaReschedule(
+    pacienteEmail: string,
+    medicoEmail: string,
+    consultaData: {
+      pacienteNombre: string;
+      medicoNombre: string;
+      fechaAnterior: string;
+      horaAnterior: string;
+      fechaNueva: string;
+      horaNueva: string;
+      motivo: string;
+      tipo: string;
+    }
+  ): Promise<{ paciente: boolean; medico: boolean }> {
+    const results = { paciente: false, medico: false };
+
+    // Email al paciente
+    const pacienteTemplate = this.getReagendamientoPacienteTemplate();
+    results.paciente = await this.sendTemplateEmail(
+      pacienteEmail,
+      pacienteTemplate,
+      consultaData
+    );
+
+    // Email al médico
+    const medicoTemplate = this.getReagendamientoMedicoTemplate();
+    results.medico = await this.sendTemplateEmail(
+      medicoEmail,
+      medicoTemplate,
+      consultaData
+    );
+
+    return results;
+  }
+
+  /**
+   * Envía email de finalización de consulta
+   */
+  async sendConsultaCompletion(
+    pacienteEmail: string,
+    medicoEmail: string,
+    consultaData: {
+      pacienteNombre: string;
+      medicoNombre: string;
+      fecha: string;
+      hora: string;
+      motivo: string;
+      diagnostico: string;
+      observaciones?: string;
+      tipo: string;
+    }
+  ): Promise<{ paciente: boolean; medico: boolean }> {
+    const results = { paciente: false, medico: false };
+
+    // Email al paciente
+    const pacienteTemplate = this.getFinalizacionPacienteTemplate();
+    results.paciente = await this.sendTemplateEmail(
+      pacienteEmail,
+      pacienteTemplate,
+      consultaData
+    );
+
+    // Email al médico
+    const medicoTemplate = this.getFinalizacionMedicoTemplate();
+    results.medico = await this.sendTemplateEmail(
+      medicoEmail,
+      medicoTemplate,
+      consultaData
+    );
+
+    return results;
+  }
+
+  /**
+   * Envía email de cancelación de consulta
+   */
+  async sendConsultaCancellation(
+    pacienteEmail: string,
+    medicoEmail: string,
+    consultaData: {
+      pacienteNombre: string;
+      medicoNombre: string;
+      fecha: string;
+      hora: string;
+      motivo: string;
+      motivoCancelacion: string;
+      tipo: string;
+    }
+  ): Promise<{ paciente: boolean; medico: boolean }> {
+    console.log('📧 EmailService.sendConsultaCancellation - Iniciando...');
+    console.log('📧 EmailService - Paciente email:', pacienteEmail);
+    console.log('📧 EmailService - Médico email:', medicoEmail);
+    console.log('📧 EmailService - Datos:', consultaData);
+
+    const results = { paciente: false, medico: false };
+
+    // Email al paciente
+    console.log('📧 Enviando email al paciente...');
+    const pacienteTemplate = this.getCancelacionPacienteTemplate();
+    results.paciente = await this.sendTemplateEmail(
+      pacienteEmail,
+      pacienteTemplate,
+      consultaData
+    );
+    console.log('📧 Resultado email paciente:', results.paciente);
+
+    // Email al médico
+    console.log('📧 Enviando email al médico...');
+    const medicoTemplate = this.getCancelacionMedicoTemplate();
+    results.medico = await this.sendTemplateEmail(
+      medicoEmail,
+      medicoTemplate,
+      consultaData
+    );
+    console.log('📧 Resultado email médico:', results.medico);
+
+    console.log('📧 EmailService.sendConsultaCancellation - Finalizado:', results);
     return results;
   }
 
@@ -264,7 +396,7 @@ export class EmailService {
           <style>
             body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
             .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { background: #E91E63; color: white; padding: 20px; text-align: center; }
+            .header { background: linear-gradient(135deg, #E91E63, #C2185B); color: white; padding: 30px 20px; text-align: center; }
             .content { padding: 20px; background: #f9f9f9; }
             .info-box { background: white; padding: 15px; margin: 10px 0; border-left: 4px solid #E91E63; }
             .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
@@ -273,8 +405,8 @@ export class EmailService {
         <body>
           <div class="container">
             <div class="header">
-              <h1>🏥 FemiMed</h1>
-              <h2>Confirmación de Consulta</h2>
+              <h1>✅ Confirmación de Consulta</h1>
+              <p>Sistema de Gestión Médica FemiMed</p>
             </div>
             <div class="content">
               <p>Estimado/a <strong>{{pacienteNombre}}</strong>,</p>
@@ -458,7 +590,7 @@ export class EmailService {
           <style>
             body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
             .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { background: #2c3e50; color: white; padding: 20px; text-align: center; }
+            .header { background: linear-gradient(135deg, #2c3e50, #34495e); color: white; padding: 30px 20px; text-align: center; }
             .content { padding: 20px; background: #f9f9f9; }
             .info-box { background: white; padding: 15px; margin: 10px 0; border-left: 4px solid #2c3e50; }
             .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
@@ -467,8 +599,8 @@ export class EmailService {
         <body>
           <div class="container">
             <div class="header">
-              <h1>👨‍⚕️ FemiMed</h1>
-              <h2>Nueva Consulta Agendada</h2>
+              <h1>👨‍⚕️ Nueva Consulta Agendada</h1>
+              <p>Sistema de Gestión Médica FemiMed</p>
             </div>
             <div class="content">
               <p>Dr./Dra. <strong>{{medicoNombre}}</strong>,</p>
@@ -870,6 +1002,737 @@ export class EmailService {
           </div>
         </body>
         </html>
+      `
+    };
+  }
+
+  private getCancelacionPacienteTemplate(): EmailTemplate {
+    return {
+      subject: 'Consulta Cancelada - FemiMed',
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Consulta Cancelada</title>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: linear-gradient(135deg, #e74c3c, #c0392b); color: white; padding: 30px 20px; text-align: center; }
+            .content { padding: 20px; background: #f9f9f9; }
+            .info-row { display: flex; margin: 10px 0; }
+            .info-label { font-weight: bold; width: 150px; }
+            .info-value { flex: 1; }
+            .footer { text-align: center; margin-top: 20px; color: #666; }
+            .btn { display: inline-block; padding: 10px 20px; background: #3498db; color: white; text-decoration: none; border-radius: 5px; }
+            .alert { background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 5px; margin: 15px 0; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>🚫 Consulta Cancelada</h1>
+              <p>Sistema de Gestión Médica FemiMed</p>
+            </div>
+            
+            <div class="content">
+              <div class="alert">
+                <strong>⚠️ Su consulta médica ha sido cancelada</strong>
+              </div>
+              
+              <p>Estimado/a <strong>{{pacienteNombre}}</strong>,</p>
+              
+              <p>Le informamos que su consulta médica ha sido cancelada. A continuación, los detalles:</p>
+              
+              <div class="consulta-details">
+                <h3>📅 Información de la Consulta Cancelada</h3>
+                <div class="info-row">
+                  <span class="info-label">Médico:</span>
+                  <span class="info-value">{{medicoNombre}}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Fecha:</span>
+                  <span class="info-value">{{fecha}}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Hora:</span>
+                  <span class="info-value">{{hora}}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Tipo:</span>
+                  <span class="info-value">{{tipo}}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Motivo original:</span>
+                  <span class="info-value">{{motivo}}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Motivo de cancelación:</span>
+                  <span class="info-value">{{motivoCancelacion}}</span>
+                </div>
+              </div>
+              
+              <div style="margin: 20px 0;">
+                <p><strong>¿Qué hacer ahora?</strong></p>
+                <ul>
+                  <li>Si necesita reagendar su consulta, puede contactar directamente con el médico</li>
+                  <li>Si tiene alguna pregunta, no dude en contactarnos</li>
+                  <li>Para nuevas consultas, puede acceder al sistema FemiMed</li>
+                </ul>
+              </div>
+              
+              <div style="text-align: center; margin: 2rem 0;">
+                <a href="#" class="btn">Acceder a FemiMed</a>
+              </div>
+            </div>
+            
+            <div class="footer">
+              <p>Sistema de Gestión Médica FemiMed</p>
+              <p>Este es un mensaje automático, por favor no responder a este email.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `
+        CONSULTA CANCELADA - FemiMed
+        
+        Estimado/a {{pacienteNombre}},
+        
+        Le informamos que su consulta médica ha sido cancelada.
+        
+        Detalles de la consulta cancelada:
+        - Médico: {{medicoNombre}}
+        - Fecha: {{fecha}}
+        - Hora: {{hora}}
+        - Tipo: {{tipo}}
+        - Motivo original: {{motivo}}
+        - Motivo de cancelación: {{motivoCancelacion}}
+        
+        Si necesita reagendar su consulta, puede contactar directamente con el médico.
+        
+        Saludos,
+        Equipo FemiMed
+      `
+    };
+  }
+
+  private getCancelacionMedicoTemplate(): EmailTemplate {
+    return {
+      subject: 'Consulta Cancelada - FemiMed',
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Consulta Cancelada</title>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: linear-gradient(135deg, #e74c3c, #c0392b); color: white; padding: 30px 20px; text-align: center; }
+            .content { padding: 20px; background: #f9f9f9; }
+            .info-row { display: flex; margin: 10px 0; }
+            .info-label { font-weight: bold; width: 150px; }
+            .info-value { flex: 1; }
+            .footer { text-align: center; margin-top: 20px; color: #666; }
+            .btn { display: inline-block; padding: 10px 20px; background: #3498db; color: white; text-decoration: none; border-radius: 5px; }
+            .alert { background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 5px; margin: 15px 0; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>🚫 Consulta Cancelada</h1>
+              <p>Sistema de Gestión Médica FemiMed</p>
+            </div>
+            
+            <div class="content">
+              <div class="alert">
+                <strong>⚠️ Una consulta ha sido cancelada</strong>
+              </div>
+              
+              <p>Estimado/a Dr./Dra. <strong>{{medicoNombre}}</strong>,</p>
+              
+              <p>Le informamos que una consulta en su agenda ha sido cancelada. A continuación, los detalles:</p>
+              
+              <div class="consulta-details">
+                <h3>📅 Información de la Consulta Cancelada</h3>
+                <div class="info-row">
+                  <span class="info-label">Paciente:</span>
+                  <span class="info-value">{{pacienteNombre}}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Fecha:</span>
+                  <span class="info-value">{{fecha}}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Hora:</span>
+                  <span class="info-value">{{hora}}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Tipo:</span>
+                  <span class="info-value">{{tipo}}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Motivo original:</span>
+                  <span class="info-value">{{motivo}}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Motivo de cancelación:</span>
+                  <span class="info-value">{{motivoCancelacion}}</span>
+                </div>
+              </div>
+              
+              <div style="margin: 20px 0;">
+                <p><strong>Acciones recomendadas:</strong></p>
+                <ul>
+                  <li>Verificar si el paciente necesita reagendar la consulta</li>
+                  <li>Actualizar su agenda médica</li>
+                  <li>Contactar al paciente si es necesario</li>
+                </ul>
+              </div>
+              
+              <div style="text-align: center; margin: 2rem 0;">
+                <a href="#" class="btn">Ver Agenda en FemiMed</a>
+              </div>
+            </div>
+            
+            <div class="footer">
+              <p>Sistema de Gestión Médica FemiMed</p>
+              <p>Este es un mensaje automático, por favor no responder a este email.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `
+        CONSULTA CANCELADA - FemiMed
+        
+        Estimado/a Dr./Dra. {{medicoNombre}},
+        
+        Le informamos que una consulta en su agenda ha sido cancelada.
+        
+        Detalles de la consulta cancelada:
+        - Paciente: {{pacienteNombre}}
+        - Fecha: {{fecha}}
+        - Hora: {{hora}}
+        - Tipo: {{tipo}}
+        - Motivo original: {{motivo}}
+        - Motivo de cancelación: {{motivoCancelacion}}
+        
+        Acciones recomendadas:
+        - Verificar si el paciente necesita reagendar la consulta
+        - Actualizar su agenda médica
+        - Contactar al paciente si es necesario
+        
+        Saludos,
+        Equipo FemiMed
+      `
+    };
+  }
+
+  private getReagendamientoPacienteTemplate(): EmailTemplate {
+    return {
+      subject: 'Consulta Reagendada - FemiMed',
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Consulta Reagendada</title>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: #f39c12; color: white; padding: 20px; text-align: center; }
+            .content { padding: 20px; background: #f9f9f9; }
+            .info-row { display: flex; margin: 10px 0; }
+            .info-label { font-weight: bold; width: 150px; }
+            .info-value { flex: 1; }
+            .footer { text-align: center; margin-top: 20px; color: #666; }
+            .btn { display: inline-block; padding: 10px 20px; background: #3498db; color: white; text-decoration: none; border-radius: 5px; }
+            .alert { background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 5px; margin: 15px 0; }
+            .change-box { background: #e8f5e8; border: 1px solid #4caf50; padding: 15px; border-radius: 5px; margin: 15px 0; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>📅 Consulta Reagendada</h1>
+              <p>Sistema de Gestión Médica FemiMed</p>
+            </div>
+            
+            <div class="content">
+              <div class="alert">
+                <strong>⚠️ Su consulta médica ha sido reagendada</strong>
+              </div>
+              
+              <p>Estimado/a <strong>{{pacienteNombre}}</strong>,</p>
+              
+              <p>Le informamos que su consulta médica ha sido reagendada. A continuación, los detalles del cambio:</p>
+              
+              <div class="change-box">
+                <h3>🔄 Cambio de Fecha y Hora</h3>
+                <div class="info-row">
+                  <span class="info-label">Fecha anterior:</span>
+                  <span class="info-value">{{fechaAnterior}}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Hora anterior:</span>
+                  <span class="info-value">{{horaAnterior}}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Nueva fecha:</span>
+                  <span class="info-value"><strong>{{fechaNueva}}</strong></span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Nueva hora:</span>
+                  <span class="info-value"><strong>{{horaNueva}}</strong></span>
+                </div>
+              </div>
+              
+              <div class="consulta-details">
+                <h3>📋 Información de la Consulta</h3>
+                <div class="info-row">
+                  <span class="info-label">Médico:</span>
+                  <span class="info-value">{{medicoNombre}}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Motivo:</span>
+                  <span class="info-value">{{motivo}}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Tipo:</span>
+                  <span class="info-value">{{tipo}}</span>
+                </div>
+              </div>
+              
+              <div style="margin: 20px 0;">
+                <p><strong>Importante:</strong></p>
+                <ul>
+                  <li>Llegue 15 minutos antes de su nueva cita</li>
+                  <li>Traiga su documento de identidad</li>
+                  <li>Si no puede asistir a la nueva fecha, contáctenos inmediatamente</li>
+                </ul>
+              </div>
+              
+              <div style="text-align: center; margin: 2rem 0;">
+                <a href="#" class="btn">Ver Detalles en FemiMed</a>
+              </div>
+            </div>
+            
+            <div class="footer">
+              <p>Sistema de Gestión Médica FemiMed</p>
+              <p>Este es un mensaje automático, por favor no responder a este email.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `
+        CONSULTA REAGENDADA - FemiMed
+        
+        Estimado/a {{pacienteNombre}},
+        
+        Le informamos que su consulta médica ha sido reagendada.
+        
+        Cambio de fecha y hora:
+        - Fecha anterior: {{fechaAnterior}}
+        - Hora anterior: {{horaAnterior}}
+        - Nueva fecha: {{fechaNueva}}
+        - Nueva hora: {{horaNueva}}
+        
+        Información de la consulta:
+        - Médico: {{medicoNombre}}
+        - Motivo: {{motivo}}
+        - Tipo: {{tipo}}
+        
+        Importante:
+        - Llegue 15 minutos antes de su nueva cita
+        - Traiga su documento de identidad
+        - Si no puede asistir a la nueva fecha, contáctenos inmediatamente
+        
+        Saludos,
+        Equipo FemiMed
+      `
+    };
+  }
+
+  private getReagendamientoMedicoTemplate(): EmailTemplate {
+    return {
+      subject: 'Consulta Reagendada - FemiMed',
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Consulta Reagendada</title>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: #f39c12; color: white; padding: 20px; text-align: center; }
+            .content { padding: 20px; background: #f9f9f9; }
+            .info-row { display: flex; margin: 10px 0; }
+            .info-label { font-weight: bold; width: 150px; }
+            .info-value { flex: 1; }
+            .footer { text-align: center; margin-top: 20px; color: #666; }
+            .btn { display: inline-block; padding: 10px 20px; background: #3498db; color: white; text-decoration: none; border-radius: 5px; }
+            .alert { background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 5px; margin: 15px 0; }
+            .change-box { background: #e8f5e8; border: 1px solid #4caf50; padding: 15px; border-radius: 5px; margin: 15px 0; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>📅 Consulta Reagendada</h1>
+              <p>Sistema de Gestión Médica FemiMed</p>
+            </div>
+            
+            <div class="content">
+              <div class="alert">
+                <strong>⚠️ Una consulta ha sido reagendada</strong>
+              </div>
+              
+              <p>Estimado/a Dr./Dra. <strong>{{medicoNombre}}</strong>,</p>
+              
+              <p>Le informamos que una consulta en su agenda ha sido reagendada. A continuación, los detalles del cambio:</p>
+              
+              <div class="change-box">
+                <h3>🔄 Cambio de Fecha y Hora</h3>
+                <div class="info-row">
+                  <span class="info-label">Fecha anterior:</span>
+                  <span class="info-value">{{fechaAnterior}}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Hora anterior:</span>
+                  <span class="info-value">{{horaAnterior}}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Nueva fecha:</span>
+                  <span class="info-value"><strong>{{fechaNueva}}</strong></span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Nueva hora:</span>
+                  <span class="info-value"><strong>{{horaNueva}}</strong></span>
+                </div>
+              </div>
+              
+              <div class="consulta-details">
+                <h3>📋 Información de la Consulta</h3>
+                <div class="info-row">
+                  <span class="info-label">Paciente:</span>
+                  <span class="info-value">{{pacienteNombre}}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Motivo:</span>
+                  <span class="info-value">{{motivo}}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Tipo:</span>
+                  <span class="info-value">{{tipo}}</span>
+                </div>
+              </div>
+              
+              <div style="margin: 20px 0;">
+                <p><strong>Acciones recomendadas:</strong></p>
+                <ul>
+                  <li>Actualizar su agenda médica con la nueva fecha/hora</li>
+                  <li>Verificar disponibilidad para la nueva fecha</li>
+                  <li>Contactar al paciente si es necesario</li>
+                </ul>
+              </div>
+              
+              <div style="text-align: center; margin: 2rem 0;">
+                <a href="#" class="btn">Ver Agenda en FemiMed</a>
+              </div>
+            </div>
+            
+            <div class="footer">
+              <p>Sistema de Gestión Médica FemiMed</p>
+              <p>Este es un mensaje automático, por favor no responder a este email.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `
+        CONSULTA REAGENDADA - FemiMed
+        
+        Estimado/a Dr./Dra. {{medicoNombre}},
+        
+        Le informamos que una consulta en su agenda ha sido reagendada.
+        
+        Cambio de fecha y hora:
+        - Fecha anterior: {{fechaAnterior}}
+        - Hora anterior: {{horaAnterior}}
+        - Nueva fecha: {{fechaNueva}}
+        - Nueva hora: {{horaNueva}}
+        
+        Información de la consulta:
+        - Paciente: {{pacienteNombre}}
+        - Motivo: {{motivo}}
+        - Tipo: {{tipo}}
+        
+        Acciones recomendadas:
+        - Actualizar su agenda médica con la nueva fecha/hora
+        - Verificar disponibilidad para la nueva fecha
+        - Contactar al paciente si es necesario
+        
+        Saludos,
+        Equipo FemiMed
+      `
+    };
+  }
+
+  private getFinalizacionPacienteTemplate(): EmailTemplate {
+    return {
+      subject: 'Consulta Finalizada - FemiMed',
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Consulta Finalizada</title>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: #27ae60; color: white; padding: 20px; text-align: center; }
+            .content { padding: 20px; background: #f9f9f9; }
+            .info-row { display: flex; margin: 10px 0; }
+            .info-label { font-weight: bold; width: 150px; }
+            .info-value { flex: 1; }
+            .footer { text-align: center; margin-top: 20px; color: #666; }
+            .btn { display: inline-block; padding: 10px 20px; background: #3498db; color: white; text-decoration: none; border-radius: 5px; }
+            .alert { background: #d4edda; border: 1px solid #c3e6cb; padding: 15px; border-radius: 5px; margin: 15px 0; }
+            .diagnosis-box { background: #f8f9fa; border: 1px solid #dee2e6; padding: 15px; border-radius: 5px; margin: 15px 0; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>✅ Consulta Finalizada</h1>
+              <p>Sistema de Gestión Médica FemiMed</p>
+            </div>
+            
+            <div class="content">
+              <div class="alert">
+                <strong>🎉 Su consulta médica ha sido finalizada</strong>
+              </div>
+              
+              <p>Estimado/a <strong>{{pacienteNombre}}</strong>,</p>
+              
+              <p>Le informamos que su consulta médica ha sido finalizada exitosamente. A continuación, los detalles:</p>
+              
+              <div class="consulta-details">
+                <h3>📅 Información de la Consulta</h3>
+                <div class="info-row">
+                  <span class="info-label">Médico:</span>
+                  <span class="info-value">{{medicoNombre}}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Fecha:</span>
+                  <span class="info-value">{{fecha}}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Hora:</span>
+                  <span class="info-value">{{hora}}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Motivo:</span>
+                  <span class="info-value">{{motivo}}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Tipo:</span>
+                  <span class="info-value">{{tipo}}</span>
+                </div>
+              </div>
+              
+              <div class="diagnosis-box">
+                <h3>🩺 Diagnóstico Preliminar</h3>
+                <p><strong>{{diagnostico}}</strong></p>
+                {{#if observaciones}}
+                <h4>Observaciones:</h4>
+                <p>{{observaciones}}</p>
+                {{/if}}
+              </div>
+              
+              <div style="margin: 20px 0;">
+                <p><strong>Próximos pasos:</strong></p>
+                <ul>
+                  <li>Conserve este diagnóstico para futuras consultas</li>
+                  <li>Si tiene dudas sobre el diagnóstico, contacte al médico</li>
+                  <li>Para seguimientos o nuevas consultas, acceda al sistema FemiMed</li>
+                </ul>
+              </div>
+              
+              <div style="text-align: center; margin: 2rem 0;">
+                <a href="#" class="btn">Acceder a FemiMed</a>
+              </div>
+            </div>
+            
+            <div class="footer">
+              <p>Sistema de Gestión Médica FemiMed</p>
+              <p>Este es un mensaje automático, por favor no responder a este email.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `
+        CONSULTA FINALIZADA - FemiMed
+        
+        Estimado/a {{pacienteNombre}},
+        
+        Le informamos que su consulta médica ha sido finalizada exitosamente.
+        
+        Información de la consulta:
+        - Médico: {{medicoNombre}}
+        - Fecha: {{fecha}}
+        - Hora: {{hora}}
+        - Motivo: {{motivo}}
+        - Tipo: {{tipo}}
+        
+        Diagnóstico preliminar:
+        {{diagnostico}}
+        
+        {{#if observaciones}}
+        Observaciones:
+        {{observaciones}}
+        {{/if}}
+        
+        Próximos pasos:
+        - Conserve este diagnóstico para futuras consultas
+        - Si tiene dudas sobre el diagnóstico, contacte al médico
+        - Para seguimientos o nuevas consultas, acceda al sistema FemiMed
+        
+        Saludos,
+        Equipo FemiMed
+      `
+    };
+  }
+
+  private getFinalizacionMedicoTemplate(): EmailTemplate {
+    return {
+      subject: 'Consulta Finalizada - FemiMed',
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Consulta Finalizada</title>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: #27ae60; color: white; padding: 20px; text-align: center; }
+            .content { padding: 20px; background: #f9f9f9; }
+            .info-row { display: flex; margin: 10px 0; }
+            .info-label { font-weight: bold; width: 150px; }
+            .info-value { flex: 1; }
+            .footer { text-align: center; margin-top: 20px; color: #666; }
+            .btn { display: inline-block; padding: 10px 20px; background: #3498db; color: white; text-decoration: none; border-radius: 5px; }
+            .alert { background: #d4edda; border: 1px solid #c3e6cb; padding: 15px; border-radius: 5px; margin: 15px 0; }
+            .diagnosis-box { background: #f8f9fa; border: 1px solid #dee2e6; padding: 15px; border-radius: 5px; margin: 15px 0; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>✅ Consulta Finalizada</h1>
+              <p>Sistema de Gestión Médica FemiMed</p>
+            </div>
+            
+            <div class="content">
+              <div class="alert">
+                <strong>🎉 Ha finalizado una consulta exitosamente</strong>
+              </div>
+              
+              <p>Estimado/a Dr./Dra. <strong>{{medicoNombre}}</strong>,</p>
+              
+              <p>Le informamos que ha finalizado una consulta en su agenda. A continuación, los detalles:</p>
+              
+              <div class="consulta-details">
+                <h3>📅 Información de la Consulta</h3>
+                <div class="info-row">
+                  <span class="info-label">Paciente:</span>
+                  <span class="info-value">{{pacienteNombre}}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Fecha:</span>
+                  <span class="info-value">{{fecha}}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Hora:</span>
+                  <span class="info-value">{{hora}}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Motivo:</span>
+                  <span class="info-value">{{motivo}}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Tipo:</span>
+                  <span class="info-value">{{tipo}}</span>
+                </div>
+              </div>
+              
+              <div class="diagnosis-box">
+                <h3>🩺 Diagnóstico Registrado</h3>
+                <p><strong>{{diagnostico}}</strong></p>
+                {{#if observaciones}}
+                <h4>Observaciones:</h4>
+                <p>{{observaciones}}</p>
+                {{/if}}
+              </div>
+              
+              <div style="margin: 20px 0;">
+                <p><strong>Acciones recomendadas:</strong></p>
+                <ul>
+                  <li>El paciente ha sido notificado del diagnóstico</li>
+                  <li>Considere programar seguimientos si es necesario</li>
+                  <li>Revise su agenda para próximas consultas</li>
+                </ul>
+              </div>
+              
+              <div style="text-align: center; margin: 2rem 0;">
+                <a href="#" class="btn">Ver Agenda en FemiMed</a>
+              </div>
+            </div>
+            
+            <div class="footer">
+              <p>Sistema de Gestión Médica FemiMed</p>
+              <p>Este es un mensaje automático, por favor no responder a este email.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `
+        CONSULTA FINALIZADA - FemiMed
+        
+        Estimado/a Dr./Dra. {{medicoNombre}},
+        
+        Le informamos que ha finalizado una consulta en su agenda.
+        
+        Información de la consulta:
+        - Paciente: {{pacienteNombre}}
+        - Fecha: {{fecha}}
+        - Hora: {{hora}}
+        - Motivo: {{motivo}}
+        - Tipo: {{tipo}}
+        
+        Diagnóstico registrado:
+        {{diagnostico}}
+        
+        {{#if observaciones}}
+        Observaciones:
+        {{observaciones}}
+        {{/if}}
+        
+        Acciones recomendadas:
+        - El paciente ha sido notificado del diagnóstico
+        - Considere programar seguimientos si es necesario
+        - Revise su agenda para próximas consultas
+        
+        Saludos,
+        Equipo FemiMed
       `
     };
   }

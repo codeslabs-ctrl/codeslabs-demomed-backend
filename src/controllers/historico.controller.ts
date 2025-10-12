@@ -158,6 +158,28 @@ export class HistoricoController {
     }
   }
 
+  async createHistorico(req: Request, res: Response<ApiResponse>): Promise<void> {
+    try {
+      const historicoData = req.body;
+      console.log('🔍 Backend - Creando historial médico:', historicoData);
+
+      const historico = await this.historicoService.createHistorico(historicoData);
+
+      const response: ApiResponse = {
+        success: true,
+        data: historico
+      };
+      res.status(201).json(response);
+    } catch (error) {
+      console.error('❌ Backend - Error creando historial:', error);
+      const response: ApiResponse = {
+        success: false,
+        error: { message: (error as Error).message }
+      };
+      res.status(400).json(response);
+    }
+  }
+
   async updateHistorico(req: Request<{ id: string }, ApiResponse>, res: Response<ApiResponse>): Promise<void> {
     try {
       const { id } = req.params;

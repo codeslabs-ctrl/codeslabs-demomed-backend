@@ -247,47 +247,20 @@ export class PatientService {
 
       console.log('🔍 Getting patients for medico_id:', medicoId, 'page:', page, 'limit:', limit, 'filters:', filters);
 
-      // Use the advanced SQL function with proper parameters
-      const { data, error } = await supabase.rpc('get_pacientes_medico', {
-        p_medico_id: medicoId,
-        p_page: page,
-        p_limit: limit,
-        p_filters: filters
-      });
-
-      if (error) {
-        console.error('❌ RPC function error:', error);
-        
-        // Fallback to direct query if function fails
-        console.log('🔄 Function failed, using fallback query');
-        return await this.getPatientsByMedicoFallback(medicoId);
-      }
-
-      console.log('✅ RPC function result:', data);
+      // Always use the enhanced fallback query that includes both historico and consultas
+      console.log('🔄 Using enhanced fallback query (includes historico + consultas)');
+      const fallbackResult = await this.getPatientsByMedicoFallback(medicoId);
       
-      // Extract patients and total count
-      const patients = data?.map((item: any) => ({
-        id: item.id,
-        nombres: item.nombres,
-        apellidos: item.apellidos,
-        cedula: item.cedula,
-        edad: item.edad,
-        sexo: item.sexo,
-        email: item.email,
-        telefono: item.telefono,
-        fecha_creacion: item.fecha_creacion,
-        fecha_actualizacion: item.fecha_actualizacion,
-        // Additional fields from the function
-        tipo_paciente: item.tipo_paciente,
-        medico_remitente_id: item.medico_remitente_id,
-        medico_remitente_nombre: item.medico_remitente_nombre,
-        fecha_remision: item.fecha_remision,
-        motivo_remision: item.motivo_remision
-      })) || [];
-
-      const total = data?.[0]?.total_count || 0;
-
-      return { patients, total };
+      // Apply pagination to the results
+      const startIndex = (page - 1) * limit;
+      const endIndex = startIndex + limit;
+      const paginatedPatients = fallbackResult.patients.slice(startIndex, endIndex);
+      
+      console.log('✅ Enhanced fallback result:', paginatedPatients.length, 'patients (page', page, 'of', Math.ceil(fallbackResult.total / limit), ')');
+      return { 
+        patients: paginatedPatients, 
+        total: fallbackResult.total 
+      };
     } catch (error) {
       console.error('❌ getPatientsByMedico error:', error);
       throw new Error(`Failed to get patients by medico: ${(error as Error).message}`);
@@ -298,7 +271,9 @@ export class PatientService {
     try {
       console.log('🔄 Using fallback query for medico_id:', medicoId);
 
-      // Fallback: Use direct query to historico_pacientes
+      // Query 1: Pacientes con historial médico
+      console.log('🔍 Query 1 - Buscando historial para medico_id:', medicoId);
+      
       const { data: historicoData, error: historicoError } = await supabase
         .from('historico_pacientes')
         .select(`
@@ -307,20 +282,79 @@ export class PatientService {
         `)
         .eq('medico_id', medicoId);
 
+      console.log('🔍 Query 1 - Resultado historial:', historicoData?.length || 0, 'historias encontradas');
+      if (historicoData && historicoData.length > 0) {
+        console.log('🔍 Query 1 - Historias encontradas:', historicoData.map(h => ({
+          id: h.id,
+          paciente_id: h.paciente_id,
+          paciente_nombre: h.pacientes?.nombres + ' ' + h.pacientes?.apellidos
+        })));
+      }
+
       if (historicoError) {
-        console.error('❌ Fallback query error:', historicoError);
+        console.error('❌ Historico query error:', historicoError);
         throw new Error(`Database error: ${historicoError.message}`);
       }
 
-      // Extract patient data from the join and remove duplicates
-      const patients = historicoData?.map(item => item.pacientes).filter(Boolean) || [];
+      // Query 2: Pacientes con consultas agendadas (fecha >= hoy)
+      const today = new Date().toISOString().split('T')[0];
+      console.log('🔍 Query 2 - Buscando consultas para medico_id:', medicoId, 'fecha >=', today);
+      
+      const { data: consultasData, error: consultasError } = await supabase
+        .from('consultas_pacientes')
+        .select(`
+          *,
+          pacientes!inner(*)
+        `)
+        .eq('medico_id', medicoId)
+        .gte('fecha_pautada', today) // Fecha >= hoy
+        .in('estado_consulta', ['agendada', 'reagendada']);
+
+      console.log('🔍 Query 2 - Resultado consultas:', consultasData?.length || 0, 'consultas encontradas');
+      if (consultasData && consultasData.length > 0) {
+        console.log('🔍 Query 2 - Consultas encontradas:', consultasData.map(c => ({
+          id: c.id,
+          paciente_id: c.paciente_id,
+          fecha_pautada: c.fecha_pautada,
+          estado_consulta: c.estado_consulta,
+          paciente_nombre: c.pacientes?.nombres + ' ' + c.pacientes?.apellidos
+        })));
+      }
+
+      if (consultasError) {
+        console.error('❌ Consultas query error:', consultasError);
+        throw new Error(`Database error: ${consultasError.message}`);
+      }
+
+      // Extract patient data from both queries
+      const historicoPatients = historicoData?.map(item => item.pacientes).filter(Boolean) || [];
+      const consultasPatients = consultasData?.map(item => item.pacientes).filter(Boolean) || [];
+      
+      // Combine both lists
+      const allPatients = [...historicoPatients, ...consultasPatients];
       
       // Remove duplicates based on patient ID
-      const uniquePatients = patients.filter((patient, index, self) => 
+      const uniquePatients = allPatients.filter((patient, index, self) => 
         index === self.findIndex(p => p.id === patient.id)
       );
 
-      console.log('✅ Fallback query result:', uniquePatients);
+      console.log('✅ Fallback query result:', uniquePatients.length, 'unique patients');
+      console.log('📊 Historico patients:', historicoPatients.length);
+      console.log('📊 Consultas patients:', consultasPatients.length);
+      
+      // Debug específico para paciente ID 140
+      const paciente140 = uniquePatients.find(p => p.id === 140);
+      if (paciente140) {
+        console.log('✅ Paciente ID 140 encontrado:', {
+          id: paciente140.id,
+          nombre: paciente140.nombres + ' ' + paciente140.apellidos,
+          cedula: paciente140.cedula
+        });
+      } else {
+        console.log('❌ Paciente ID 140 NO encontrado en la lista final');
+        console.log('🔍 IDs de pacientes encontrados:', uniquePatients.map(p => p.id));
+      }
+      
       return { patients: uniquePatients, total: uniquePatients.length };
     } catch (error) {
       console.error('❌ Fallback query error:', error);
@@ -349,40 +383,11 @@ export class PatientService {
         console.log('✅ Admin: Retrieved', allPatients?.length || 0, 'patients');
         return allPatients || [];
       } else {
-        // For doctor: use the existing function
+        // For doctor: use the fallback query (which includes both historico and consultas)
         console.log('👨‍⚕️ Doctor: Getting patients for medico_id:', medicoId);
         
-        const { data, error } = await supabase.rpc('get_pacientes_medico', {
-          p_medico_id: medicoId,
-          p_page: 1,
-          p_limit: 10000, // High limit to get all patients
-          p_filters: {} // No filters for statistics
-        });
-
-        if (error) {
-          console.error('❌ RPC function error for doctor stats:', error);
-          console.log('🔄 Function failed for doctor stats, using fallback query');
-          const fallbackResult = await this.getPatientsByMedicoFallback(medicoId);
-          return fallbackResult.patients;
-        }
-
-        console.log('✅ Doctor: Retrieved', data?.length || 0, 'patients');
-        
-        // Extract patients for statistics
-        const patients = data?.map((item: any) => ({
-          id: item.id,
-          nombres: item.nombres,
-          apellidos: item.apellidos,
-          cedula: item.cedula,
-          edad: item.edad,
-          sexo: item.sexo,
-          email: item.email,
-          telefono: item.telefono,
-          fecha_creacion: item.fecha_creacion,
-          fecha_actualizacion: item.fecha_actualizacion
-        })) || [];
-
-        return patients;
+        const fallbackResult = await this.getPatientsByMedicoFallback(medicoId);
+        return fallbackResult.patients;
       }
     } catch (error) {
       console.error('❌ getPatientsByMedicoForStats error:', error);

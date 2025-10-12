@@ -26,8 +26,8 @@ export class ConsultaController {
         .from('vista_consultas_completa')
         .select('*')
         .range(offset, offset + Number(limit) - 1)
-        .order('fecha_pautada', { ascending: true })
-        .order('hora_pautada', { ascending: true });
+        .order('fecha_pautada', { ascending: false })
+        .order('hora_pautada', { ascending: false });
 
       // Aplicar filtros
       if (paciente_id) {
@@ -528,13 +528,36 @@ export class ConsultaController {
       console.log('✅ Consulta encontrada:', consultaExistente);
       console.log('🔄 Estado actual:', consultaExistente.estado_consulta);
 
+      // Verificar que la consulta está en un estado válido para cancelar
+      if (!['agendada', 'reagendada'].includes(consultaExistente.estado_consulta)) {
+        res.status(400).json({
+          success: false,
+          error: { message: 'Solo se pueden cancelar consultas en estado "agendada" o "reagendada"' }
+        } as ApiResponse<null>);
+        return;
+      }
+
+      // Obtener información del usuario autenticado
+      const user = (req as any).user;
+      console.log('👤 Usuario que cancela:', user);
+      console.log('👤 User ID:', user?.userId);
+      console.log('👤 User completo:', JSON.stringify(user, null, 2));
+
+      // Preparar datos de actualización
+      const updateData = {
+        estado_consulta: 'cancelada',
+        motivo_cancelacion: motivo_cancelacion,
+        fecha_cancelacion: new Date().toISOString(),
+        cancelado_por: user?.userId || null
+      };
+      
+      console.log('🔄 Datos a actualizar:', updateData);
+
       // Actualizar el estado de la consulta a 'cancelada'
       console.log('🔄 Actualizando estado a "cancelada"...');
       const { data: consulta, error } = await supabase
         .from('consultas_pacientes')
-        .update({
-          estado_consulta: 'cancelada'
-        })
+        .update(updateData)
         .eq('id', consultaId)
         .select()
         .single();
@@ -549,13 +572,86 @@ export class ConsultaController {
       }
 
       console.log('✅ Consulta cancelada exitosamente:', consulta);
+      console.log('✅ Datos guardados:', {
+        id: consulta.id,
+        estado_consulta: consulta.estado_consulta,
+        motivo_cancelacion: consulta.motivo_cancelacion,
+        fecha_cancelacion: consulta.fecha_cancelacion,
+        cancelado_por: consulta.cancelado_por
+      });
+
+      // Obtener datos completos de la consulta para el email
+      const { data: consultaCompleta, error: errorCompleta } = await supabase
+        .from('consultas_pacientes')
+        .select(`
+          id,
+          motivo_consulta,
+          tipo_consulta,
+          fecha_pautada,
+          hora_pautada,
+          pacientes!inner(nombres, apellidos, email),
+          medicos!fk_consultas_medico(nombres, apellidos, email)
+        `)
+        .eq('id', consultaId)
+        .single();
+
+      console.log('🔍 Debug - errorCompleta:', errorCompleta);
+      console.log('🔍 Debug - consultaCompleta:', consultaCompleta);
+      console.log('🔍 Debug - pacientes:', consultaCompleta?.pacientes);
+      console.log('🔍 Debug - medicos:', consultaCompleta?.medicos);
+      console.log('🔍 Debug - Condición 1 (!errorCompleta):', !errorCompleta);
+      console.log('🔍 Debug - Condición 2 (consultaCompleta):', !!consultaCompleta);
+      console.log('🔍 Debug - Condición 3 (consultaCompleta.pacientes):', !!consultaCompleta?.pacientes);
+      console.log('🔍 Debug - Condición 4 (consultaCompleta.medicos):', !!consultaCompleta?.medicos);
+
+      if (!errorCompleta && consultaCompleta && consultaCompleta.pacientes && consultaCompleta.medicos) {
+        console.log('📧 Enviando emails de cancelación...');
+        
+        const emailService = new EmailService();
+        const emailData = {
+          pacienteNombre: `${(consultaCompleta.pacientes as any)?.nombres || ''} ${(consultaCompleta.pacientes as any)?.apellidos || ''}`,
+          medicoNombre: `${(consultaCompleta.medicos as any)?.nombres || ''} ${(consultaCompleta.medicos as any)?.apellidos || ''}`,
+          fecha: consultaCompleta.fecha_pautada,
+          hora: consultaCompleta.hora_pautada,
+          motivo: consultaCompleta.motivo_consulta,
+          motivoCancelacion: motivo_cancelacion,
+          tipo: consultaCompleta.tipo_consulta
+        };
+
+        try {
+          console.log('📧 Datos del email:', {
+            pacienteEmail: (consultaCompleta.pacientes as any)?.email,
+            medicoEmail: (consultaCompleta.medicos as any)?.email,
+            emailData: emailData
+          });
+
+          const emailResults = await emailService.sendConsultaCancellation(
+            (consultaCompleta.pacientes as any)?.email || '',
+            (consultaCompleta.medicos as any)?.email || '',
+            emailData
+          );
+
+          console.log('📧 Resultados de emails:', emailResults);
+        } catch (emailError) {
+          console.error('❌ Error enviando emails de cancelación:', emailError);
+          // No fallar la operación por error de email
+        }
+      } else {
+        console.log('❌ No se enviaron emails - Condiciones no cumplidas');
+        console.log('❌ errorCompleta:', errorCompleta);
+        console.log('❌ consultaCompleta existe:', !!consultaCompleta);
+        console.log('❌ pacientes existe:', !!consultaCompleta?.pacientes);
+        console.log('❌ medicos existe:', !!consultaCompleta?.medicos);
+      }
+      
       res.json({
         success: true,
         data: {
           id: consultaId,
           estado_consulta: 'cancelada',
           motivo_cancelacion: motivo_cancelacion,
-          fecha_cancelacion: new Date().toISOString()
+          fecha_cancelacion: new Date().toISOString(),
+          cancelado_por: user?.userId || null
         }
       } as ApiResponse<any>);
 
@@ -583,13 +679,51 @@ export class ConsultaController {
         return;
       }
 
+      if (!diagnostico_preliminar) {
+        res.status(400).json({
+          success: false,
+          error: { message: 'El diagnóstico preliminar es requerido' }
+        } as ApiResponse<null>);
+        return;
+      }
+
+      // Verificar que la consulta existe y está en estado válido para finalizar
+      const { data: consultaExistente, error: errorConsulta } = await supabase
+        .from('consultas_pacientes')
+        .select('id, estado_consulta')
+        .eq('id', consultaId)
+        .single();
+
+      if (errorConsulta) {
+        console.error('❌ Error verificando consulta:', errorConsulta);
+        res.status(404).json({
+          success: false,
+          error: { message: 'Consulta no encontrada', details: errorConsulta.message }
+        } as ApiResponse<null>);
+        return;
+      }
+
+      // Verificar que la consulta está en un estado válido para finalizar
+      if (!['agendada', 'reagendada'].includes(consultaExistente.estado_consulta)) {
+        res.status(400).json({
+          success: false,
+          error: { message: 'Solo se pueden finalizar consultas en estado "agendada" o "reagendada"' }
+        } as ApiResponse<null>);
+        return;
+      }
+
+      // Obtener información del usuario autenticado
+      const user = (req as any).user;
+      console.log('👤 Usuario que finaliza:', user);
+
       const { data: consulta, error } = await supabase
         .from('consultas_pacientes')
         .update({
           estado_consulta: 'finalizada',
           fecha_culminacion: new Date().toISOString(),
           diagnostico_preliminar,
-          observaciones
+          observaciones,
+          actualizado_por: user?.userId || null
         })
         .eq('id', consultaId)
         .select()
@@ -602,6 +736,50 @@ export class ConsultaController {
           error: { message: 'Error al finalizar consulta' }
         } as ApiResponse<null>);
         return;
+      }
+
+      // Obtener datos completos de la consulta para el email
+      const { data: consultaCompleta, error: errorCompleta } = await supabase
+        .from('consultas_pacientes')
+        .select(`
+          id,
+          motivo_consulta,
+          tipo_consulta,
+          fecha_pautada,
+          hora_pautada,
+          pacientes!inner(nombre, apellidos, email),
+          medicos!inner(nombre, apellidos, email)
+        `)
+        .eq('id', consultaId)
+        .single();
+
+      if (!errorCompleta && consultaCompleta && consultaCompleta.pacientes?.length > 0 && consultaCompleta.medicos?.length > 0) {
+        console.log('📧 Enviando emails de finalización...');
+        
+        const emailService = new EmailService();
+        const emailData = {
+          pacienteNombre: `${consultaCompleta.pacientes[0]?.nombre || ''} ${consultaCompleta.pacientes[0]?.apellidos || ''}`,
+          medicoNombre: `${consultaCompleta.medicos[0]?.nombre || ''} ${consultaCompleta.medicos[0]?.apellidos || ''}`,
+          fecha: consultaCompleta.fecha_pautada,
+          hora: consultaCompleta.hora_pautada,
+          motivo: consultaCompleta.motivo_consulta,
+          diagnostico: diagnostico_preliminar,
+          observaciones: observaciones,
+          tipo: consultaCompleta.tipo_consulta
+        };
+
+        try {
+          const emailResults = await emailService.sendConsultaCompletion(
+            consultaCompleta.pacientes[0]?.email || '',
+            consultaCompleta.medicos[0]?.email || '',
+            emailData
+          );
+          
+          console.log('📧 Resultados de emails de finalización:', emailResults);
+        } catch (emailError) {
+          console.error('❌ Error enviando emails de finalización:', emailError);
+          // No fallar la operación por error de email
+        }
       }
 
       res.json({
@@ -625,6 +803,10 @@ export class ConsultaController {
       const consultaId = parseInt(id || '0');
       const { fecha_pautada, hora_pautada } = req.body;
 
+      console.log('🔄 Reagendar consulta - ID:', consultaId);
+      console.log('🔄 Nueva fecha:', fecha_pautada);
+      console.log('🔄 Nueva hora:', hora_pautada);
+
       if (isNaN(consultaId)) {
         res.status(400).json({
           success: false,
@@ -641,36 +823,142 @@ export class ConsultaController {
         return;
       }
 
+      // Verificar que la consulta existe y está en estado válido para reagendar
+      const { data: consultaExistente, error: errorConsulta } = await supabase
+        .from('consultas_pacientes')
+        .select('id, estado_consulta, fecha_pautada, hora_pautada, fecha_culminacion')
+        .eq('id', consultaId)
+        .single();
+
+      if (errorConsulta) {
+        console.error('❌ Error verificando consulta:', errorConsulta);
+        res.status(404).json({
+          success: false,
+          error: { message: 'Consulta no encontrada' }
+        } as ApiResponse<null>);
+        return;
+      }
+
+      console.log('✅ Consulta encontrada:', consultaExistente);
+
+      // Verificar que la consulta está en un estado válido para reagendar
+      if (!['agendada', 'reagendada', 'por_agendar'].includes(consultaExistente.estado_consulta)) {
+        res.status(400).json({
+          success: false,
+          error: { message: 'Solo se pueden reagendar consultas en estado "agendada", "reagendada" o "por_agendar"' }
+        } as ApiResponse<null>);
+        return;
+      }
+
+      // Actualizar la consulta
+      console.log('🔄 Actualizando consulta...');
+      
+      // Obtener información del usuario autenticado
+      const user = (req as any).user;
+      console.log('👤 Usuario que reagenda:', user);
+
+      // Preparar datos de actualización
+      const updateData: any = {
+        fecha_pautada,
+        hora_pautada,
+        estado_consulta: consultaExistente.estado_consulta === 'por_agendar' ? 'agendada' : 'reagendada',
+        fecha_actualizacion: new Date().toISOString(),
+        actualizado_por: user?.userId || null
+      };
+
+      // Si la consulta ya está finalizada (tiene fecha_culminacion), limpiar datos de finalización
+      if (consultaExistente.fecha_culminacion) {
+        console.log('🔄 Consulta finalizada reagendada - limpiando datos de finalización');
+        updateData.fecha_culminacion = null;
+        updateData.diagnostico_preliminar = null;
+        updateData.observaciones = null;
+        console.log('✅ Datos de finalización limpiados para permitir reagendamiento');
+      }
+
+      console.log('🔄 Datos a actualizar:', updateData);
+      
       const { data: consulta, error } = await supabase
         .from('consultas_pacientes')
-        .update({
-          fecha_pautada,
-          hora_pautada,
-          estado_consulta: 'reagendada'
-        })
+        .update(updateData)
         .eq('id', consultaId)
         .select()
         .single();
 
       if (error) {
-        console.error('Error rescheduling consulta:', error);
+        console.error('❌ Error reagendando consulta:', error);
         res.status(500).json({
           success: false,
-          error: { message: 'Error al reagendar consulta' }
+          error: { 
+            message: 'Error al reagendar consulta', 
+            details: error.message,
+            constraint: error.code === '23514' ? 'Restricción de fecha_culminacion violada' : undefined
+          }
         } as ApiResponse<null>);
         return;
       }
 
+      console.log('✅ Consulta reagendada exitosamente:', {
+        id: consulta.id,
+        nuevaFecha: consulta.fecha_pautada,
+        nuevaHora: consulta.hora_pautada,
+        estado: consulta.estado_consulta,
+        fechaCulminacion: consulta.fecha_culminacion
+      });
+
+      // Obtener datos completos de la consulta para el email
+      const { data: consultaCompleta, error: errorCompleta } = await supabase
+        .from('consultas_pacientes')
+        .select(`
+          id,
+          motivo_consulta,
+          tipo_consulta,
+          fecha_pautada,
+          hora_pautada,
+          pacientes!inner(nombre, apellidos, email),
+          medicos!inner(nombre, apellidos, email)
+        `)
+        .eq('id', consultaId)
+        .single();
+
+      if (!errorCompleta && consultaCompleta && consultaCompleta.pacientes?.length > 0 && consultaCompleta.medicos?.length > 0) {
+        console.log('📧 Enviando emails de reagendamiento...');
+        
+        const emailService = new EmailService();
+        const emailData = {
+          pacienteNombre: `${consultaCompleta.pacientes[0]?.nombre || ''} ${consultaCompleta.pacientes[0]?.apellidos || ''}`,
+          medicoNombre: `${consultaCompleta.medicos[0]?.nombre || ''} ${consultaCompleta.medicos[0]?.apellidos || ''}`,
+          fechaAnterior: consultaExistente.fecha_pautada,
+          horaAnterior: consultaExistente.hora_pautada,
+          fechaNueva: consultaCompleta.fecha_pautada,
+          horaNueva: consultaCompleta.hora_pautada,
+          motivo: consultaCompleta.motivo_consulta,
+          tipo: consultaCompleta.tipo_consulta
+        };
+
+        try {
+          const emailResults = await emailService.sendConsultaReschedule(
+            consultaCompleta.pacientes[0]?.email || '',
+            consultaCompleta.medicos[0]?.email || '',
+            emailData
+          );
+          
+          console.log('📧 Resultados de emails de reagendamiento:', emailResults);
+        } catch (emailError) {
+          console.error('❌ Error enviando emails de reagendamiento:', emailError);
+          // No fallar la operación por error de email
+        }
+      }
+      
       res.json({
         success: true,
         data: consulta
       } as ApiResponse<typeof consulta>);
 
     } catch (error) {
-      console.error('Error in reagendarConsulta:', error);
+      console.error('❌ Error in reagendarConsulta:', error);
       res.status(500).json({
         success: false,
-        error: { message: 'Error interno del servidor' }
+        error: { message: 'Error interno del servidor', details: (error as Error).message }
       } as ApiResponse<null>);
     }
   }

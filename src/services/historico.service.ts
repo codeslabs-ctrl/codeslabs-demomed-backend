@@ -7,13 +7,12 @@ export interface HistoricoData {
   motivo_consulta: string;
   diagnostico?: string;
   conclusiones?: string;
-  antecedentes_medicos?: string;
-  medicamentos?: string;
-  alergias?: string;
-  observaciones?: string;
+  plan?: string;
   fecha_consulta: string;
   fecha_creacion: string;
   fecha_actualizacion: string;
+  ruta_archivo?: string;
+  nombre_archivo?: string;
 }
 
 export interface HistoricoWithDetails extends HistoricoData {
@@ -192,6 +191,67 @@ export class HistoricoService {
     } catch (error) {
       console.error('❌ updateHistorico - Error:', error);
       throw new Error(`Failed to update historico: ${(error as Error).message}`);
+    }
+  }
+
+  async createHistorico(historicoData: Omit<HistoricoData, 'id' | 'fecha_creacion' | 'fecha_actualizacion'>): Promise<HistoricoWithDetails> {
+    try {
+      console.log('🔍 createHistorico - Datos recibidos:', historicoData);
+
+      // Validar campos requeridos
+      if (!historicoData.paciente_id || !historicoData.motivo_consulta) {
+        console.error('❌ Validación fallida:', {
+          paciente_id: historicoData.paciente_id,
+          motivo_consulta: historicoData.motivo_consulta
+        });
+        throw new Error('paciente_id and motivo_consulta are required');
+      }
+
+      // Obtener el medico_id del usuario autenticado (esto debería venir del token JWT)
+      // Por ahora, usaremos un valor por defecto o lo pasaremos desde el frontend
+      const medicoId = historicoData.medico_id || 1; // TODO: Obtener del token JWT
+
+      const insertData = {
+        paciente_id: historicoData.paciente_id,
+        medico_id: medicoId,
+        motivo_consulta: historicoData.motivo_consulta,
+        diagnostico: historicoData.diagnostico || null,
+        conclusiones: historicoData.conclusiones || null,
+        plan: historicoData.plan || null,
+        fecha_consulta: historicoData.fecha_consulta || new Date().toISOString().split('T')[0]
+      };
+      
+      console.log('🔍 Datos a insertar en la base de datos:', insertData);
+      
+      const { data, error } = await supabase
+        .from('historico_pacientes')
+        .insert(insertData)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('❌ createHistorico - Error:', error);
+        throw new Error(`Database error: ${error.message}`);
+      }
+
+      console.log('✅ createHistorico - Historial creado:', data);
+
+      // Obtener los datos completos con joins
+      const { data: fullData, error: fullError } = await supabase
+        .from('vista_historico_por_paciente')
+        .select('*')
+        .eq('id', data.id)
+        .single();
+
+      if (fullError) {
+        console.error('❌ createHistorico - Error getting full data:', fullError);
+        throw new Error(`Database error getting full data: ${fullError.message}`);
+      }
+
+      return fullData;
+    } catch (error) {
+      console.error('❌ createHistorico - Error:', error);
+      throw new Error(`Failed to create historico: ${(error as Error).message}`);
     }
   }
 }
