@@ -77,6 +77,19 @@ export class PatientService {
     }
   }
 
+  async checkEmailAvailability(email: string): Promise<boolean> {
+    try {
+      const patient = await this.patientRepository.findByEmail(email);
+      return patient === null; // true if available (no patient found), false if not available
+    } catch (error) {
+      // If error is "not found", email is available
+      if (error instanceof Error && error.message.includes('not found')) {
+        return true;
+      }
+      throw new Error(`Failed to check email availability: ${(error as Error).message}`);
+    }
+  }
+
   async createPatient(patientData: Omit<PatientData, 'id' | 'fecha_creacion' | 'fecha_actualizacion'>, medicoId?: number): Promise<PatientData> {
     try {
       console.log('🔍 PatientService - Validando datos del paciente:', patientData);

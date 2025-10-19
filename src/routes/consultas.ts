@@ -11,6 +11,9 @@ router.get('/del-dia', authenticateToken, ConsultaController.getConsultasDelDia)
 router.get('/pendientes', authenticateToken, ConsultaController.getConsultasPendientes);
 router.get('/search', authenticateToken, ConsultaController.searchConsultas);
 router.get('/estadisticas', authenticateToken, ConsultaController.getEstadisticasConsultas);
+router.get('/estadisticas-por-periodo', authenticateToken, ConsultaController.getEstadisticasPorPeriodo);
+router.get('/estadisticas-por-especialidad', authenticateToken, ConsultaController.getEstadisticasPorEspecialidad);
+router.get('/estadisticas-por-medico', authenticateToken, ConsultaController.getEstadisticasPorMedico);
 router.get('/by-paciente/:pacienteId', authenticateToken, ConsultaController.getConsultasByPaciente);
 router.get('/by-medico/:medicoId', authenticateToken, ConsultaController.getConsultasByMedico);
 

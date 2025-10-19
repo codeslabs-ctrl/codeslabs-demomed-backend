@@ -554,4 +554,22 @@ export class PatientController {
       res.status(500).json(response);
     }
   }
+
+  async checkEmailAvailability(req: AuthenticatedRequest, res: Response<{exists: boolean}>): Promise<void> {
+    try {
+      const { email } = req.query;
+      
+      if (!email || typeof email !== 'string') {
+        res.status(400).json({ exists: false });
+        return;
+      }
+
+      const isAvailable = await this.patientService.checkEmailAvailability(email);
+      
+      res.json({ exists: !isAvailable }); // exists: true if email is taken, false if available
+    } catch (error) {
+      console.error('Error checking email availability:', error);
+      res.status(500).json({ exists: false });
+    }
+  }
 }

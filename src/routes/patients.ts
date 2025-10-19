@@ -20,6 +20,7 @@ router.get('/test', (req, res) => patientController.testEndpoint(req, res));
 router.get('/test-function/:medicoId', (req, res) => patientController.testFunction(req as any, res));
 router.get('/test-historico/:medicoId', (req, res) => patientController.testHistorico(req as any, res));
 router.get('/email/:email', authenticateToken, (req, res) => patientController.getPatientByEmail(req, res));
+router.get('/check-email', authenticateToken, (req, res) => patientController.checkEmailAvailability(req, res));
 router.get('/:id', authenticateToken, (req, res) => patientController.getPatientById(req, res));
 router.post('/', authenticateToken, (req, res) => patientController.createPatient(req, res));
 router.put('/:id', authenticateToken, (req, res) => patientController.updatePatient(req, res));

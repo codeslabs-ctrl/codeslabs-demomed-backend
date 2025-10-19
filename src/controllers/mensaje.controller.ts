@@ -244,7 +244,7 @@ export class MensajeController {
   // Obtener pacientes para difusión
   static async getPacientesParaDifusion(req: Request, res: Response): Promise<void> {
     try {
-      const { busqueda, especialidad, medico, activos } = req.query;
+      const { busqueda, activos } = req.query;
 
       let query = supabase
         .from('pacientes')
@@ -254,15 +254,11 @@ export class MensajeController {
           apellidos,
           email,
           telefono,
-          medico_id,
-          medicos!medico_id (
-            nombres,
-            apellidos,
-            especialidad_id,
-            especialidades!especialidad_id (
-              nombre_especialidad
-            )
-          )
+          edad,
+          sexo,
+          activo,
+          fecha_creacion,
+          cedula
         `)
         .order('nombres', { ascending: true });
 
@@ -270,21 +266,17 @@ export class MensajeController {
         query = query.or(`nombres.ilike.%${busqueda}%,apellidos.ilike.%${busqueda}%,email.ilike.%${busqueda}%`);
       }
 
-      if (especialidad) {
-        query = query.eq('medicos.especialidad_id', especialidad);
-      }
+      // Filtro por médico no disponible - la tabla pacientes no tiene relación directa con médicos
+      // TODO: Implementar filtro por médico cuando se defina la relación
 
-      if (medico) {
-        query = query.eq('medico_id', medico);
-      }
-
+      // Para administradores, mostrar todos los pacientes por defecto
+      // Solo filtrar por activos si se especifica explícitamente
       if (activos === 'true') {
-        // Filtrar pacientes con consultas recientes (últimos 6 meses)
-        const sixMonthsAgo = new Date();
-        sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-        
-        query = query.gte('fecha_creacion', sixMonthsAgo.toISOString());
+        query = query.eq('activo', true);
+      } else if (activos === 'false') {
+        query = query.eq('activo', false);
       }
+      // Si no se especifica 'activos', mostrar todos (activos e inactivos)
 
       const { data, error } = await query;
 
@@ -292,7 +284,10 @@ export class MensajeController {
         console.error('Error fetching pacientes:', error);
         res.status(500).json({
           success: false,
-          error: { message: 'Error al obtener los pacientes' }
+          error: { 
+            message: 'Error al obtener los pacientes',
+            details: error.message 
+          }
         });
         return;
       }
@@ -304,8 +299,12 @@ export class MensajeController {
         apellidos: paciente.apellidos,
         email: paciente.email,
         telefono: paciente.telefono,
-        medico_nombre: paciente.medicos ? `${(paciente.medicos as any).nombres} ${(paciente.medicos as any).apellidos}` : null,
-        especialidad_nombre: (paciente.medicos as any)?.especialidades?.nombre_especialidad || null,
+        edad: paciente.edad,
+        sexo: paciente.sexo,
+        activo: paciente.activo,
+        cedula: paciente.cedula,
+        medico_nombre: 'Sin médico asignado',
+        especialidad_nombre: 'Sin especialidad',
         seleccionado: false
       })) || [];
 
@@ -431,6 +430,315 @@ export class MensajeController {
 
     } catch (error) {
       console.error('Error getting destinatarios:', error);
+      res.status(500).json({
+        success: false,
+        error: { message: 'Error interno del servidor' }
+      });
+    }
+  }
+
+  // Obtener destinatarios actuales con información completa del paciente
+  static async getDestinatariosActuales(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+
+      const { data, error } = await supabase
+        .from('mensajes_destinatarios')
+        .select(`
+          id,
+          paciente_id,
+          estado_envio,
+          pacientes!paciente_id (
+            id,
+            nombres,
+            apellidos,
+            email,
+            telefono,
+            edad,
+            sexo,
+            activo,
+            cedula
+          )
+        `)
+        .eq('mensaje_id', id);
+
+      if (error) {
+        console.error('Error fetching destinatarios actuales:', error);
+        res.status(500).json({
+          success: false,
+          error: { message: 'Error al obtener los destinatarios actuales' }
+        });
+        return;
+      }
+
+      // Transformar datos para el frontend
+      const destinatariosTransformados = data?.map(dest => {
+        const paciente = Array.isArray(dest.pacientes) ? dest.pacientes[0] : dest.pacientes;
+        return {
+          id: paciente?.id,
+          nombres: paciente?.nombres,
+          apellidos: paciente?.apellidos,
+          email: paciente?.email,
+          telefono: paciente?.telefono,
+          edad: paciente?.edad,
+          sexo: paciente?.sexo,
+          activo: paciente?.activo,
+          cedula: paciente?.cedula,
+          estado_envio: dest.estado_envio,
+          seleccionado: true // Ya están seleccionados
+        };
+      }) || [];
+
+      res.json({
+        success: true,
+        data: destinatariosTransformados
+      });
+
+    } catch (error) {
+      console.error('Error getting destinatarios actuales:', error);
+      res.status(500).json({
+        success: false,
+        error: { message: 'Error interno del servidor' }
+      });
+    }
+  }
+
+  // Agregar nuevos destinatarios a un mensaje
+  static async agregarDestinatarios(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { destinatarios } = req.body; // Array de IDs de pacientes
+
+      if (!destinatarios || !Array.isArray(destinatarios)) {
+        res.status(400).json({
+          success: false,
+          error: { message: 'Se requiere un array de IDs de destinatarios' }
+        });
+        return;
+      }
+
+      // Obtener emails de los pacientes
+      const { data: pacientes, error: pacientesError } = await supabase
+        .from('pacientes')
+        .select('id, email')
+        .in('id', destinatarios);
+
+      if (pacientesError) {
+        console.error('Error fetching pacientes:', pacientesError);
+        res.status(500).json({
+          success: false,
+          error: { message: 'Error al obtener los pacientes' }
+        });
+        return;
+      }
+
+      // Crear destinatarios
+      const destinatariosData = pacientes.map(paciente => ({
+        mensaje_id: parseInt(id!),
+        paciente_id: paciente.id,
+        email: paciente.email,
+        estado_envio: 'pendiente'
+      }));
+
+      const { error: insertError } = await supabase
+        .from('mensajes_destinatarios')
+        .insert(destinatariosData);
+
+      if (insertError) {
+        console.error('Error creating destinatarios:', insertError);
+        res.status(500).json({
+          success: false,
+          error: { message: 'Error al agregar los destinatarios' }
+        });
+        return;
+      }
+
+      // Actualizar total_destinatarios en la tabla mensajes
+      const { count: destinatariosCount, error: countError } = await supabase
+        .from('mensajes_destinatarios')
+        .select('*', { count: 'exact', head: true })
+        .eq('mensaje_id', id);
+
+      console.log('Destinatarios count:', destinatariosCount, 'for mensaje:', id);
+
+      if (!countError) {
+        const { error: updateError } = await supabase
+          .from('mensajes_difusion')
+          .update({ total_destinatarios: destinatariosCount || 0 })
+          .eq('id', id);
+        
+        if (updateError) {
+          console.error('Error updating total_destinatarios:', updateError);
+        } else {
+          console.log('Successfully updated total_destinatarios to:', destinatariosCount);
+        }
+      } else {
+        console.error('Error counting destinatarios:', countError);
+      }
+
+      res.json({
+        success: true,
+        data: { message: 'Destinatarios agregados exitosamente' }
+      });
+
+    } catch (error) {
+      console.error('Error adding destinatarios:', error);
+      res.status(500).json({
+        success: false,
+        error: { message: 'Error interno del servidor' }
+      });
+    }
+  }
+
+  // Eliminar destinatario de un mensaje
+  static async eliminarDestinatario(req: Request, res: Response): Promise<void> {
+    try {
+      const { id, pacienteId } = req.params;
+
+      const { error } = await supabase
+        .from('mensajes_destinatarios')
+        .delete()
+        .eq('mensaje_id', id)
+        .eq('paciente_id', pacienteId);
+
+      if (error) {
+        console.error('Error deleting destinatario:', error);
+        res.status(500).json({
+          success: false,
+          error: { message: 'Error al eliminar el destinatario' }
+        });
+        return;
+      }
+
+      // Actualizar total_destinatarios en la tabla mensajes
+      const { count: destinatariosCount, error: countError } = await supabase
+        .from('mensajes_destinatarios')
+        .select('*', { count: 'exact', head: true })
+        .eq('mensaje_id', id);
+
+      if (!countError) {
+        await supabase
+          .from('mensajes_difusion')
+          .update({ total_destinatarios: destinatariosCount || 0 })
+          .eq('id', id);
+      }
+
+      res.json({
+        success: true,
+        data: { message: 'Destinatario eliminado exitosamente' }
+      });
+
+    } catch (error) {
+      console.error('Error deleting destinatario:', error);
+      res.status(500).json({
+        success: false,
+        error: { message: 'Error interno del servidor' }
+      });
+    }
+  }
+
+  // Diagnosticar destinatarios de un mensaje específico
+  static async diagnosticarDestinatarios(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      
+      // Obtener mensaje
+      const { data: mensaje, error: mensajeError } = await supabase
+        .from('mensajes_difusion')
+        .select('id, titulo, total_destinatarios')
+        .eq('id', id)
+        .single();
+
+      if (mensajeError) {
+        console.error('Error fetching mensaje:', mensajeError);
+        res.status(500).json({
+          success: false,
+          error: { message: 'Error al obtener el mensaje' }
+        });
+        return;
+      }
+
+      // Contar destinatarios reales
+      const { count: destinatariosReales, error: countError } = await supabase
+        .from('mensajes_destinatarios')
+        .select('*', { count: 'exact', head: true })
+        .eq('mensaje_id', id);
+
+      if (countError) {
+        console.error('Error counting destinatarios:', countError);
+      }
+
+      // Obtener lista de destinatarios
+      const { data: destinatariosLista, error: listaError } = await supabase
+        .from('mensajes_destinatarios')
+        .select('id, paciente_id, estado_envio')
+        .eq('mensaje_id', id);
+
+      if (listaError) {
+        console.error('Error fetching destinatarios list:', listaError);
+      }
+
+      res.json({
+        success: true,
+        data: {
+          mensaje: mensaje,
+          contador_actual: mensaje.total_destinatarios,
+          destinatarios_reales: destinatariosReales || 0,
+          destinatarios_lista: destinatariosLista || [],
+          sincronizado: mensaje.total_destinatarios === (destinatariosReales || 0)
+        }
+      });
+
+    } catch (error) {
+      console.error('Error diagnosing destinatarios:', error);
+      res.status(500).json({
+        success: false,
+        error: { message: 'Error interno del servidor' }
+      });
+    }
+  }
+
+  // Sincronizar contadores de destinatarios
+  static async sincronizarContadores(_req: Request, res: Response): Promise<void> {
+    try {
+      // Obtener todos los mensajes
+      const { data: mensajes, error: mensajesError } = await supabase
+        .from('mensajes_difusion')
+        .select('id');
+
+      if (mensajesError) {
+        console.error('Error fetching mensajes:', mensajesError);
+        res.status(500).json({
+          success: false,
+          error: { message: 'Error al obtener mensajes' }
+        });
+        return;
+      }
+
+      // Para cada mensaje, contar destinatarios y actualizar
+      for (const mensaje of mensajes || []) {
+        const { count: destinatariosCount, error: countError } = await supabase
+          .from('mensajes_destinatarios')
+          .select('*', { count: 'exact', head: true })
+          .eq('mensaje_id', mensaje.id);
+
+        if (!countError) {
+          await supabase
+            .from('mensajes_difusion')
+            .update({ total_destinatarios: destinatariosCount || 0 })
+            .eq('id', mensaje.id);
+          
+          console.log(`Updated mensaje ${mensaje.id} with ${destinatariosCount} destinatarios`);
+        }
+      }
+
+      res.json({
+        success: true,
+        data: { message: 'Contadores sincronizados exitosamente' }
+      });
+
+    } catch (error) {
+      console.error('Error syncing counters:', error);
       res.status(500).json({
         success: false,
         error: { message: 'Error interno del servidor' }

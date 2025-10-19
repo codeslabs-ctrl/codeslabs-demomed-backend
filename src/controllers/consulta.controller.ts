@@ -1076,4 +1076,146 @@ export class ConsultaController {
       } as ApiResponse<null>);
     }
   }
+
+  // Obtener estadísticas de consultas por estado en un período
+  static async getEstadisticasPorPeriodo(req: Request, res: Response): Promise<void> {
+    try {
+      const { fecha_inicio, fecha_fin } = req.query;
+
+      console.log('🔍 Obteniendo estadísticas por período:', { fecha_inicio, fecha_fin });
+
+      let query = supabase
+        .from('consultas_pacientes')
+        .select('estado_consulta');
+
+      if (fecha_inicio) {
+        query = query.gte('fecha_creacion', fecha_inicio);
+      }
+      if (fecha_fin) {
+        query = query.lte('fecha_creacion', fecha_fin);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        throw new Error(`Database error: ${error.message}`);
+      }
+
+      // Procesar datos para estadísticas por estado
+      const estadisticas: { [key: string]: number } = {};
+
+      data?.forEach(consulta => {
+        const estado = consulta.estado_consulta || 'sin_estado';
+        estadisticas[estado] = (estadisticas[estado] || 0) + 1;
+      });
+
+      // Convertir a array para el frontend
+      const resultado = Object.entries(estadisticas).map(([estado, total]) => ({
+        estado,
+        total
+      })).sort((a, b) => b.total - a.total);
+
+      console.log('✅ Estadísticas por período:', resultado);
+
+      const response: ApiResponse = {
+        success: true,
+        data: resultado
+      };
+      res.json(response);
+    } catch (error) {
+      console.error('❌ Error obteniendo estadísticas por período:', error);
+      const response: ApiResponse = {
+        success: false,
+        error: { message: (error as Error).message }
+      };
+      res.status(500).json(response);
+    }
+  }
+
+  // Obtener estadísticas de consultas por especialidad en un período
+  static async getEstadisticasPorEspecialidad(req: Request, res: Response): Promise<void> {
+    try {
+      const { fecha_inicio, fecha_fin } = req.query;
+
+      console.log('🔍 Obteniendo estadísticas por especialidad:', { fecha_inicio, fecha_fin });
+
+
+      // Usar función SQL optimizada que maneja los filtros de fecha
+      const { data, error } = await supabase.rpc('get_estadisticas_especialidades', {
+        fecha_inicio: fecha_inicio || null,
+        fecha_fin: fecha_fin || null
+      });
+
+      if (error) {
+        console.error('❌ Error en consulta:', error);
+        throw new Error(`Database error: ${error.message}`);
+      }
+
+      console.log('🔍 Datos obtenidos:', data?.length, 'registros');
+
+      // Los datos ya vienen procesados desde la función SQL
+      const resultado = data?.map((row: any) => ({
+        especialidad: row.especialidad,
+        total: row.total
+      })) || [];
+
+      console.log('✅ Estadísticas por especialidad:', resultado);
+
+      const response: ApiResponse = {
+        success: true,
+        data: resultado
+      };
+      res.json(response);
+    } catch (error) {
+      console.error('❌ Error obteniendo estadísticas por especialidad:', error);
+      const response: ApiResponse = {
+        success: false,
+        error: { message: (error as Error).message }
+      };
+      res.status(500).json(response);
+    }
+  }
+
+  // Obtener estadísticas de consultas por médico en un período
+  static async getEstadisticasPorMedico(req: Request, res: Response): Promise<void> {
+    try {
+      const { fecha_inicio, fecha_fin } = req.query;
+
+      console.log('🔍 Obteniendo estadísticas por médico:', { fecha_inicio, fecha_fin });
+
+      // Usar función SQL optimizada que maneja los filtros de fecha
+      const { data, error } = await supabase.rpc('get_estadisticas_medicos', {
+        fecha_inicio: fecha_inicio || null,
+        fecha_fin: fecha_fin || null
+      });
+
+      if (error) {
+        console.error('❌ Error en consulta:', error);
+        throw new Error(`Database error: ${error.message}`);
+      }
+
+      console.log('🔍 Datos obtenidos:', data?.length, 'registros');
+
+      // Los datos ya vienen procesados desde la función SQL
+      const resultado = data?.map((row: any) => ({
+        medico: row.medico,
+        total: row.total
+      })) || [];
+
+      console.log('✅ Estadísticas por médico:', resultado);
+
+      const response: ApiResponse = {
+        success: true,
+        data: resultado
+      };
+      res.json(response);
+    } catch (error) {
+      console.error('❌ Error obteniendo estadísticas por médico:', error);
+      const response: ApiResponse = {
+        success: false,
+        error: { message: (error as Error).message }
+      };
+      res.status(500).json(response);
+    }
+  }
 }
