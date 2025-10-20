@@ -13,6 +13,10 @@ import consultaRoutes from './consultas.js';
 import archivoRoutes from './archivos.js';
 import mensajeRoutes from './mensajes.js';
 import authRecoveryRoutes from './auth-recovery.js';
+import clinicaRoutes from './clinica.js';
+import informeMedicoRoutes from './informes-medicos.js';
+import contextualDataRoutes from './contextual-data.js';
+import pdfRoutes from './pdf.js';
 import { ApiResponse } from '../types/index.js';
 
 const router = express.Router();
@@ -40,6 +44,10 @@ router.get('/', (_req: Request, res: Response) => {
             views: '/views',
             data: '/data',
             supabase: '/supabase',
+            clinica: '/clinica',
+            informesMedicos: '/informes-medicos',
+            contextualData: '/contextual-data',
+            pdf: '/pdf',
             health: '/health'
           },
       documentation: 'https://github.com/your-repo/femimed-backend',
@@ -79,5 +87,9 @@ router.use('/auth-recovery', authRecoveryRoutes);
 router.use('/views', viewsRoutes);
 router.use('/data', dataRoutes);
 router.use('/supabase', supabaseRoutes);
+router.use('/clinica', clinicaRoutes);
+router.use('/informes-medicos', informeMedicoRoutes);
+router.use('/contextual-data', contextualDataRoutes);
+router.use('/pdf', pdfRoutes);
 
 export default router;

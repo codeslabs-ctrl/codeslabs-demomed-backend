@@ -1736,4 +1736,59 @@ export class EmailService {
       `
     };
   }
+
+  /**
+   * Plantilla para envío de Informe Médico al paciente (HTML similar a consultas)
+   */
+  getInformePacienteTemplate(): EmailTemplate {
+    return {
+      subject: 'Informe Médico N° {{numero_informe}} - FemiMed',
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Informe Médico</title>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin:0; padding:0; }
+            .container { max-width: 600px; margin: 0 auto; }
+            .header { background: linear-gradient(135deg, #E91E63, #C2185B); color: white; padding: 24px; text-align: center; }
+            .content { padding: 20px; background: #f9f9f9; }
+            .info-box { background: white; padding: 16px; border-left: 4px solid #E91E63; margin: 12px 0; }
+            .footer { text-align: center; padding: 16px; color: #666; font-size: 12px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>📄 Informe Médico</h1>
+              <p>Sistema de Gestión Médica FemiMed</p>
+            </div>
+            <div class="content">
+              <p>Estimado/a <strong>{{pacienteNombre}}</strong>,</p>
+              <p>Adjunto encontrará su Informe Médico N° <strong>{{numero_informe}}</strong>, emitido el <strong>{{fecha_emision}}</strong>.</p>
+              <div class="info-box">
+                <p>Si tiene dudas o requiere aclaratorias, puede responder a este correo.</p>
+              </div>
+              <p>Saludos cordiales,<br>{{clinicaNombre}}</p>
+            </div>
+            <div class="footer">
+              <p>Este es un mensaje automático, por favor no responder a este email.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `
+        Informe Médico - FemiMed
+        
+        Estimado/a {{pacienteNombre}},
+        Adjunto encontrará su Informe Médico N° {{numero_informe}}, emitido el {{fecha_emision}}.
+        Si tiene dudas o requiere aclaratorias, puede responder a este correo.
+        
+        Saludos cordiales,
+        {{clinicaNombre}}
+      `
+    };
+  }
 }
