@@ -9,6 +9,13 @@ import {
   validarCertificadoDigital,
   verificarPermisosFirma
 } from '../middleware/firma-digital.middleware';
+import { 
+  medicoSecurityMiddleware,
+  adminSecurityMiddleware,
+  validateInforme,
+  informeLimiter,
+  emailLimiter
+} from '../middleware/security';
 import informeMedicoController from '../controllers/informe-medico.controller';
 
 const router = Router();
@@ -21,62 +28,62 @@ router.use(verifyClinica);
 // INFORMES MÉDICOS
 // =====================================================
 
-// Crear nuevo informe médico
-router.post('/', informeMedicoController.crearInforme);
+// Crear nuevo informe médico (solo médicos y admins)
+router.post('/', medicoSecurityMiddleware, validateInforme, informeLimiter, informeMedicoController.crearInforme);
 
-// Obtener lista de informes médicos
-router.get('/', informeMedicoController.obtenerInformes);
+// Obtener lista de informes médicos (médicos y admins)
+router.get('/', medicoSecurityMiddleware, informeMedicoController.obtenerInformes);
 
-// Obtener informe médico por ID
-router.get('/:id', verificarFirmaDigital, informeMedicoController.obtenerInformePorId);
+// Obtener informe médico por ID (médicos y admins)
+router.get('/:id', medicoSecurityMiddleware, verificarFirmaDigital, informeMedicoController.obtenerInformePorId);
 
-// Actualizar informe médico (solo si no está firmado)
-router.put('/:id', verificarFirmaDigital, noRequerirFirmaDigital, informeMedicoController.actualizarInforme);
+// Actualizar informe médico (solo si no está firmado) (médicos y admins)
+router.put('/:id', medicoSecurityMiddleware, verificarFirmaDigital, noRequerirFirmaDigital, validateInforme, informeMedicoController.actualizarInforme);
 
-// Eliminar informe médico
-router.delete('/:id', informeMedicoController.eliminarInforme);
+// Eliminar informe médico (solo admins)
+router.delete('/:id', adminSecurityMiddleware, informeMedicoController.eliminarInforme);
 
 // =====================================================
 // TEMPLATES DE INFORMES
 // =====================================================
 
-// Obtener templates de informes
-router.get('/templates/list', informeMedicoController.obtenerTemplates);
+// Obtener templates de informes (médicos y admins)
+router.get('/templates/list', medicoSecurityMiddleware, informeMedicoController.obtenerTemplates);
 
-// Crear nuevo template de informe
-router.post('/templates', informeMedicoController.crearTemplate);
+// Crear nuevo template de informe (solo admins)
+router.post('/templates', adminSecurityMiddleware, informeMedicoController.crearTemplate);
 
-// Obtener template por ID
-router.get('/templates/:id', informeMedicoController.obtenerTemplate);
+// Obtener template por ID (médicos y admins)
+router.get('/templates/:id', medicoSecurityMiddleware, informeMedicoController.obtenerTemplate);
 
-// Actualizar template
-router.put('/templates/:id', informeMedicoController.actualizarTemplate);
+// Actualizar template (solo admins)
+router.put('/templates/:id', adminSecurityMiddleware, informeMedicoController.actualizarTemplate);
 
-// Eliminar template
-router.delete('/templates/:id', informeMedicoController.eliminarTemplate);
+// Eliminar template (solo admins)
+router.delete('/templates/:id', adminSecurityMiddleware, informeMedicoController.eliminarTemplate);
 
 // =====================================================
 // ANEXOS
 // =====================================================
 
-// Obtener anexos de un informe
-router.get('/:informeId/anexos', informeMedicoController.obtenerAnexosPorInforme);
+// Obtener anexos de un informe (médicos y admins)
+router.get('/:informeId/anexos', medicoSecurityMiddleware, informeMedicoController.obtenerAnexosPorInforme);
 
-// Agregar anexo a un informe
-router.post('/:informeId/anexos', informeMedicoController.agregarAnexo);
+// Agregar anexo a un informe (médicos y admins)
+router.post('/:informeId/anexos', medicoSecurityMiddleware, informeMedicoController.agregarAnexo);
 
-// Eliminar anexo de un informe
-router.delete('/anexos/:anexoId', informeMedicoController.eliminarAnexo);
+// Eliminar anexo de un informe (médicos y admins)
+router.delete('/anexos/:anexoId', medicoSecurityMiddleware, informeMedicoController.eliminarAnexo);
 
 // =====================================================
 // ENVÍOS
 // =====================================================
 
-// Obtener envíos de un informe
-router.get('/:informeId/envios', informeMedicoController.obtenerEnviosPorInforme);
+// Obtener envíos de un informe (médicos y admins)
+router.get('/:informeId/envios', medicoSecurityMiddleware, informeMedicoController.obtenerEnviosPorInforme);
 
-// Enviar informe a paciente (sin exigir firma en este ambiente)
-router.post('/:informeId/enviar', informeMedicoController.enviarInforme);
+// Enviar informe a paciente (médicos y admins, con rate limiting para emails)
+router.post('/:informeId/enviar', medicoSecurityMiddleware, emailLimiter, informeMedicoController.enviarInforme);
 
 // =====================================================
 // FIRMA DIGITAL

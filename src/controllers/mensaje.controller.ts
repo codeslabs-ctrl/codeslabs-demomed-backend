@@ -94,6 +94,7 @@ export class MensajeController {
       }
 
       // Crear el mensaje
+      const clinicaAlias = process.env['CLINICA_ALIAS'];
       const { data: mensaje, error: mensajeError } = await supabase
         .from('mensajes_difusion')
         .insert({
@@ -103,7 +104,8 @@ export class MensajeController {
           estado: fecha_programado ? 'programado' : 'borrador',
           fecha_programado: fecha_programado || null,
           creado_por: 1, // TODO: Obtener del token JWT
-          total_destinatarios: destinatarios.length
+          total_destinatarios: destinatarios.length,
+          clinica_alias: clinicaAlias
         })
         .select()
         .single();

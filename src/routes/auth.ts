@@ -1,7 +1,12 @@
 import express from 'express';
 import { AuthController } from '../controllers/auth.controller.js';
 import { validateRequest } from '../middleware/validation.js';
-import { authenticateToken } from '../middleware/auth.js';
+// import { authenticateToken } from '../middleware/auth.js';
+import { 
+  authSecurityMiddleware,
+  validateLogin,
+  authLimiter
+} from '../middleware/security.js';
 import { 
   SignUpRequest, 
   SignInRequest, 
@@ -56,15 +61,28 @@ const authSchemas = {
   })
 };
 
-// Auth routes
-router.post('/signup', validateRequest(authSchemas.signUp), (req, res) => authController.signUp(req, res));
-router.post('/signin', validateRequest(authSchemas.signIn), (req, res) => authController.signIn(req, res));
-router.post('/login', validateRequest(authSchemas.login), (req, res) => authController.login(req, res));
+// Auth routes con middlewares de seguridad
+router.post('/signup', authLimiter, validateRequest(authSchemas.signUp), (req, res) => authController.signUp(req, res));
+router.post('/signin', authLimiter, validateLogin, (req, res) => authController.signIn(req, res));
+router.post('/login', authLimiter, validateLogin, (req, res) => authController.login(req, res));
 router.post('/signout', (req, res) => authController.signOut(req, res));
-router.get('/user', (req, res) => authController.getCurrentUser(req, res));
-router.put('/user', validateRequest(authSchemas.updateUser), (req, res) => authController.updateUser(req, res));
-router.post('/reset-password', validateRequest(authSchemas.resetPassword), (req, res) => authController.resetPassword(req, res));
-router.post('/regenerate-otp', validateRequest(authSchemas.regenerateOTP), (req, res) => authController.regenerateOTP(req, res));
-router.post('/change-password', authenticateToken, validateRequest(authSchemas.changePassword), (req, res) => authController.changePassword(req, res));
+router.get('/user', authSecurityMiddleware, (req: any, res: any) => authController.getCurrentUser(req, res));
+router.put('/user', authSecurityMiddleware, validateRequest(authSchemas.updateUser), (req: any, res: any) => authController.updateUser(req, res));
+router.post('/reset-password', authLimiter, validateRequest(authSchemas.resetPassword), (req, res) => authController.resetPassword(req, res));
+router.post('/regenerate-otp', authLimiter, validateRequest(authSchemas.regenerateOTP), (req, res) => authController.regenerateOTP(req, res));
+router.post('/change-password', authSecurityMiddleware, validateRequest(authSchemas.changePassword), (req: any, res: any) => authController.changePassword(req, res));
+
+// Debug endpoint to check current user role
+router.get('/debug-user', authSecurityMiddleware, (req: any, res: any) => {
+  res.json({
+    success: true,
+    data: {
+      user: req.user,
+      role: req.user?.rol,
+      userId: req.user?.userId,
+      medico_id: req.user?.medico_id
+    }
+  });
+});
 
 export default router;

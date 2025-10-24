@@ -1,0 +1,172 @@
+import { Request, Response, NextFunction } from 'express';
+import rateLimit from 'express-rate-limit';
+import helmet from 'helmet';
+import cors from 'cors';
+import Joi from 'joi';
+import jwt from 'jsonwebtoken';
+
+// Extender Request interface
+declare global {
+  namespace Express {
+    interface Request {
+      user?: any;
+    }
+  }
+}
+
+// Headers de seguridad
+export const securityHeaders = helmet();
+
+// CORS configurado
+export const corsMiddleware = cors({
+  origin: process.env['FRONTEND_URL'] || 'http://localhost:4200',
+  credentials: true
+});
+
+// Rate limiting general
+export const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 100,
+  message: 'Demasiadas solicitudes desde esta IP'
+});
+
+// Rate limiting para autenticación
+export const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 5,
+  message: 'Demasiados intentos de login'
+});
+
+// Rate limiting para informes médicos
+export const informeLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minuto
+  max: 3,
+  message: 'Demasiados informes médicos'
+});
+
+// Rate limiting para emails
+export const emailLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5 minutos
+  max: 10,
+  message: 'Demasiados emails enviados'
+});
+
+// Middleware de autenticación JWT
+export const authenticateToken = (req: Request, res: Response, next: NextFunction): void => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    res.status(401).json({ error: 'Token de acceso requerido' });
+    return;
+  }
+
+  jwt.verify(token, process.env['JWT_SECRET'] || 'default-secret', (err: any, user: any) => {
+    if (err) {
+      res.status(403).json({ error: 'Token inválido' });
+      return;
+    }
+    req.user = user;
+    next();
+  });
+};
+
+// Middleware de autorización por roles
+export const requireRole = (roles: string[]) => {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      res.status(401).json({ error: 'Usuario no autenticado' });
+      return;
+    }
+
+    const userRole = (req.user as any).rol;
+    
+    // Mapeo de roles de la base de datos a roles del middleware
+    const roleMapping: { [key: string]: string[] } = {
+      'administrador': ['admin', 'administrador'],
+      'medico': ['medico'],
+      'admin': ['admin', 'administrador'] // Para compatibilidad
+    };
+    
+    // Verificar si el rol del usuario está permitido
+    const allowedRoles = roles.flatMap(role => roleMapping[role] || [role]);
+    
+    if (!allowedRoles.includes(userRole)) {
+      console.log(`🚫 Acceso denegado: Usuario rol="${userRole}", Roles requeridos=${roles.join(',')}`);
+      res.status(403).json({ 
+        error: 'Acceso denegado',
+        details: `Rol requerido: ${roles.join(' o ')}, Rol actual: ${userRole}`
+      });
+      return;
+    }
+
+    next();
+  };
+};
+
+// Middleware de validación de input
+export const validateInput = (schema: Joi.ObjectSchema) => {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const { error } = schema.validate(req.body);
+    if (error) {
+      res.status(400).json({ error: error.details[0]?.message || 'Error de validación' });
+      return;
+    }
+    next();
+  };
+};
+
+// Validación específica para login
+export const validateLogin = validateInput(Joi.object({
+  username: Joi.string().min(3).required(),
+  password: Joi.string().min(6).required()
+}));
+
+// Validación específica para informes médicos
+export const validateInforme = validateInput(Joi.object({
+  paciente_id: Joi.number().required(),
+  medico_id: Joi.number().required(),
+  contenido: Joi.string().min(10).required(),
+  estado: Joi.string().valid('borrador', 'firmado', 'enviado').default('borrador')
+}));
+
+// Validación específica para pacientes
+export const validatePaciente = validateInput(Joi.object({
+  nombres: Joi.string().min(2).required(),
+  apellidos: Joi.string().min(2).required(),
+  cedula: Joi.string().min(7).required(),
+  email: Joi.string().email().required(),
+  telefono: Joi.string().min(8).required(),
+  fecha_nacimiento: Joi.date().required(),
+  sexo: Joi.string().valid('M', 'F').required()
+}));
+
+// Validación específica para consultas
+export const validateConsulta = validateInput(Joi.object({
+  paciente_id: Joi.number().required(),
+  medico_id: Joi.number().required(),
+  fecha_consulta: Joi.date().required(),
+  motivo: Joi.string().min(5).required(),
+  estado: Joi.string().valid('programada', 'en_proceso', 'completada', 'cancelada').default('programada')
+}));
+
+// Middleware de seguridad para autenticación
+export const authSecurityMiddleware = [authenticateToken];
+
+// Middleware de seguridad para médicos
+export const medicoSecurityMiddleware = [authenticateToken, requireRole(['medico', 'administrador'])];
+
+// Middleware de seguridad para administradores
+export const adminSecurityMiddleware = [authenticateToken, requireRole(['administrador'])];
+
+// Middleware de seguridad para secretaria
+export const secretariaSecurityMiddleware = [authenticateToken, requireRole(['secretaria', 'administrador'])];
+
+// Middleware de seguridad para finanzas
+export const finanzasSecurityMiddleware = [authenticateToken, requireRole(['finanzas', 'administrador'])];
+
+// Middleware para médicos y secretaria (acceso a pacientes/consultas)
+export const medicoSecretariaMiddleware = [authenticateToken, requireRole(['medico', 'secretaria', 'administrador'])];
+
+// Middleware para roles que pueden ver reportes
+export const reportesSecurityMiddleware = [authenticateToken, requireRole(['medico', 'secretaria', 'finanzas', 'administrador'])];

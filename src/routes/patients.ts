@@ -1,29 +1,34 @@
 import express from 'express';
 import { PatientController } from '../controllers/patient.controller.js';
-import { authenticateToken } from '../middleware/auth.js';
+// import { authenticateToken } from '../middleware/auth.js';
+import { 
+  medicoSecurityMiddleware,
+  adminSecurityMiddleware,
+  validatePaciente
+} from '../middleware/security.js';
 
 const router = express.Router();
 const patientController = new PatientController();
 
-// Patient routes - Apply authentication middleware to protected routes
-router.get('/', authenticateToken, (req, res) => patientController.getAllPatients(req, res));
-router.get('/statistics', authenticateToken, (req, res) => patientController.getPatientStatistics(req, res));
-router.get('/stats', authenticateToken, (req, res) => patientController.getPatientsByMedicoForStats(req, res));
-router.get('/stats-test', (req, res) => patientController.getPatientsByMedicoForStats(req, res));
-router.get('/admin-stats', (req, res) => patientController.getAdminStats(req, res));
-router.get('/search', authenticateToken, (req, res) => patientController.searchPatients(req, res));
-router.get('/search-cedula', authenticateToken, (req, res) => patientController.searchPatientsByCedula(req, res));
-router.get('/age-range', authenticateToken, (req, res) => patientController.getPatientsByAgeRange(req, res));
-router.get('/by-medico/:medicoId', authenticateToken, (req, res) => patientController.getPatientsByMedico(req as any, res));
-router.get('/by-medico/:medicoId/stats', authenticateToken, (req, res) => patientController.getPatientsByMedicoForStats(req as any, res));
-router.get('/test', (req, res) => patientController.testEndpoint(req, res));
-router.get('/test-function/:medicoId', (req, res) => patientController.testFunction(req as any, res));
-router.get('/test-historico/:medicoId', (req, res) => patientController.testHistorico(req as any, res));
-router.get('/email/:email', authenticateToken, (req, res) => patientController.getPatientByEmail(req, res));
-router.get('/check-email', authenticateToken, (req, res) => patientController.checkEmailAvailability(req, res));
-router.get('/:id', authenticateToken, (req, res) => patientController.getPatientById(req, res));
-router.post('/', authenticateToken, (req, res) => patientController.createPatient(req, res));
-router.put('/:id', authenticateToken, (req, res) => patientController.updatePatient(req, res));
-router.delete('/:id', authenticateToken, (req, res) => patientController.deletePatient(req, res));
+// Patient routes con middlewares de seguridad
+router.get('/', medicoSecurityMiddleware, (req: any, res: any) => patientController.getAllPatients(req, res));
+router.get('/statistics', medicoSecurityMiddleware, (req: any, res: any) => patientController.getPatientStatistics(req, res));
+router.get('/stats', medicoSecurityMiddleware, (req: any, res: any) => patientController.getPatientsByMedicoForStats(req, res));
+router.get('/stats-test', (req: any, res: any) => patientController.getPatientsByMedicoForStats(req, res));
+router.get('/admin-stats', adminSecurityMiddleware, (req: any, res: any) => patientController.getAdminStats(req, res));
+router.get('/search', medicoSecurityMiddleware, (req: any, res: any) => patientController.searchPatients(req, res));
+router.get('/search-cedula', medicoSecurityMiddleware, (req: any, res: any) => patientController.searchPatientsByCedula(req, res));
+router.get('/age-range', medicoSecurityMiddleware, (req: any, res: any) => patientController.getPatientsByAgeRange(req, res));
+router.get('/by-medico/:medicoId', medicoSecurityMiddleware, (req: any, res: any) => patientController.getPatientsByMedico(req as any, res));
+router.get('/by-medico/:medicoId/stats', medicoSecurityMiddleware, (req: any, res: any) => patientController.getPatientsByMedicoForStats(req as any, res));
+router.get('/test', (req: any, res: any) => patientController.testEndpoint(req, res));
+router.get('/test-function/:medicoId', (req: any, res: any) => patientController.testFunction(req as any, res));
+router.get('/test-historico/:medicoId', (req: any, res: any) => patientController.testHistorico(req as any, res));
+router.get('/email/:email', medicoSecurityMiddleware, (req: any, res: any) => patientController.getPatientByEmail(req, res));
+router.get('/check-email', medicoSecurityMiddleware, (req: any, res: any) => patientController.checkEmailAvailability(req, res));
+router.get('/:id', medicoSecurityMiddleware, (req: any, res: any) => patientController.getPatientById(req, res));
+router.post('/', medicoSecurityMiddleware, validatePaciente, (req: any, res: any) => patientController.createPatient(req, res));
+router.put('/:id', medicoSecurityMiddleware, validatePaciente, (req: any, res: any) => patientController.updatePatient(req, res));
+router.delete('/:id', adminSecurityMiddleware, (req: any, res: any) => patientController.deletePatient(req, res));
 
 export default router;

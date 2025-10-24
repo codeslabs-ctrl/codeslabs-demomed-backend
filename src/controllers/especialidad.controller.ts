@@ -97,9 +97,10 @@ export class EspecialidadController {
         return;
       }
 
+      const clinicaAlias = process.env['CLINICA_ALIAS'];
       const { data: newEspecialidad, error: createError } = await supabase
         .from('especialidades')
-        .insert({ nombre_especialidad, descripcion })
+        .insert({ nombre_especialidad, descripcion, clinica_alias: clinicaAlias })
         .select()
         .single();
 

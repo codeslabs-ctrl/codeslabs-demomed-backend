@@ -1,12 +1,14 @@
 import express from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
 import morgan from 'morgan';
 import compression from 'compression';
-import rateLimit from 'express-rate-limit';
 import { config } from './config/environment.js';
 import { testConnection } from './config/database.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
+import { 
+  securityHeaders, 
+  corsMiddleware, 
+  generalLimiter
+} from './middleware/security.js';
 // import { ApiResponse } from './types/index.js';
 
 // Import routes
@@ -15,41 +17,10 @@ import healthRoutes from './routes/health.js';
 
 const app = express();
 
-// Security middleware
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "https:"],
-    },
-  },
-}));
-
-// CORS configuration
-app.use(cors({
-  origin: config.cors.origin,
-  credentials: config.cors.credentials,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
-}));
-
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: config.api.rateLimit.windowMs,
-  max: config.api.rateLimit.maxRequests,
-  message: {
-    success: false,
-    error: {
-      message: 'Too many requests from this IP, please try again later.'
-    }
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-app.use(limiter);
+// Aplicar middlewares de seguridad
+app.use(securityHeaders);
+app.use(corsMiddleware);
+app.use(generalLimiter);
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));

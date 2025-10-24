@@ -102,6 +102,7 @@ export class ArchivoController {
       }
 
       // Preparar datos para insertar
+      const clinicaAlias = process.env['CLINICA_ALIAS'];
       const archivosData = files.map((file, index) => ({
         historia_id: parseInt(historia_id),
         nombre_original: file.originalname,
@@ -109,7 +110,8 @@ export class ArchivoController {
         ruta_archivo: file.path,
         tipo_mime: file.mimetype,
         tamano_bytes: file.size,
-        descripcion: descripcionesArray[index] || null
+        descripcion: descripcionesArray[index] || null,
+        clinica_alias: clinicaAlias
       }));
 
       // Insertar todos los archivos en la base de datos

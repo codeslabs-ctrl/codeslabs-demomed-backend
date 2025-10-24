@@ -146,9 +146,10 @@ export class MedicoController {
       }
 
       // Crear el médico
+      const clinicaAlias = process.env['CLINICA_ALIAS'];
       const { data: newMedico, error: createError } = await supabase
         .from('medicos')
-        .insert({ nombres, apellidos, email, telefono, especialidad_id })
+        .insert({ nombres, apellidos, email, telefono, especialidad_id, clinica_alias: clinicaAlias })
         .select()
         .single();
 

@@ -96,14 +96,35 @@ export class ConsultaController {
         return;
       }
 
-      const { data: consulta, error } = await supabase
-        .from('vista_consultas_completa')
-        .select('*')
+      // Primero obtener la consulta básica
+      const { data: consulta, error: consultaError } = await supabase
+        .from('consultas_pacientes')
+        .select(`
+          *,
+          pacientes!inner(
+            id,
+            nombres,
+            apellidos,
+            cedula,
+            telefono,
+            email
+          ),
+          medicos!fk_consultas_medico(
+            id,
+            nombres,
+            apellidos,
+            especialidades(
+              id,
+              nombre_especialidad,
+              descripcion
+            )
+          )
+        `)
         .eq('id', consultaId)
         .single();
 
-      if (error) {
-        console.error('Error fetching consulta:', error);
+      if (consultaError) {
+        console.error('Error fetching consulta:', consultaError);
         res.status(404).json({
           success: false,
           error: { message: 'Consulta no encontrada' }
@@ -111,10 +132,36 @@ export class ConsultaController {
         return;
       }
 
+      // Procesar los datos para incluir especialidad_id
+      console.log('🔍 Datos de consulta desde BD:', JSON.stringify(consulta, null, 2));
+      console.log('🔍 Médico completo:', consulta.medicos);
+      console.log('🔍 Especialidad del médico:', consulta.medicos.especialidades);
+      console.log('🔍 Tipo de especialidades:', typeof consulta.medicos.especialidades);
+      console.log('🔍 Es array especialidades:', Array.isArray(consulta.medicos.especialidades));
+      
+      // Manejar especialidades como array
+      const especialidad = Array.isArray(consulta.medicos.especialidades) 
+        ? consulta.medicos.especialidades[0] 
+        : consulta.medicos.especialidades;
+      
+      console.log('🔍 Especialidad procesada:', especialidad);
+      console.log('🔍 Especialidad ID:', especialidad?.id);
+      console.log('🔍 Especialidad nombre:', especialidad?.nombre_especialidad);
+      
+      const consultaProcessed = {
+        ...consulta,
+        paciente_nombre: `${consulta.pacientes.nombres} ${consulta.pacientes.apellidos}`,
+        medico_nombre: `${consulta.medicos.nombres} ${consulta.medicos.apellidos}`,
+        especialidad_id: especialidad?.id || null,
+        especialidad_nombre: especialidad?.nombre_especialidad || 'Sin especialidad'
+      };
+      
+      console.log('🔍 Consulta procesada:', JSON.stringify(consultaProcessed, null, 2));
+
       res.json({
         success: true,
-        data: consulta
-      } as ApiResponse<typeof consulta>);
+        data: consultaProcessed
+      } as ApiResponse<typeof consultaProcessed>);
 
     } catch (error) {
       console.error('Error in getConsultaById:', error);
@@ -262,9 +309,12 @@ export class ConsultaController {
         return;
       }
 
+      // Consulta simple sin joins complejos
       let query = supabase
-        .from('vista_consultas_hoy')
+        .from('consultas_pacientes')
         .select('*')
+        .eq('fecha_pautada', new Date().toISOString().split('T')[0])
+        .in('estado_consulta', ['agendada', 'reagendada', 'en_progreso'])
         .order('hora_pautada', { ascending: true });
 
       // Si el usuario es médico, filtrar solo sus consultas
@@ -287,20 +337,63 @@ export class ConsultaController {
         return;
       }
 
-      console.log('🔍 Consultas encontradas:', consultas?.length || 0);
-      if (consultas && consultas.length > 0) {
+      // Procesar datos con consultas separadas
+      const consultasProcesadas = [];
+      
+      for (const consulta of consultas || []) {
+        // Obtener datos del paciente
+        const { data: paciente } = await supabase
+          .from('pacientes')
+          .select('nombres, apellidos, telefono, cedula')
+          .eq('id', consulta.paciente_id)
+          .single();
+        
+        // Obtener datos del médico con especialidad
+        const { data: medico } = await supabase
+          .from('medicos')
+          .select(`
+            nombres,
+            apellidos,
+            especialidad_id,
+            especialidades!inner(
+              nombre_especialidad,
+              descripcion
+            )
+          `)
+          .eq('id', consulta.medico_id)
+          .single();
+        
+        // Combinar datos
+        consultasProcesadas.push({
+          ...consulta,
+          paciente_nombre: paciente?.nombres || '',
+          paciente_apellidos: paciente?.apellidos || '',
+          paciente_telefono: paciente?.telefono || '',
+          paciente_cedula: paciente?.cedula || '',
+          medico_nombre: medico?.nombres || '',
+          medico_apellidos: medico?.apellidos || '',
+          especialidad_id: medico?.especialidad_id || null,
+          especialidad_nombre: medico?.especialidades?.[0]?.nombre_especialidad || '',
+          especialidad_descripcion: medico?.especialidades?.[0]?.descripcion || ''
+        });
+      }
+
+      console.log('🔍 Consultas encontradas:', consultasProcesadas?.length || 0);
+      if (consultasProcesadas && consultasProcesadas.length > 0) {
         console.log('🔍 Primera consulta:', {
-          id: consultas[0].id,
-          paciente_nombre: consultas[0].paciente_nombre,
-          medico_id: consultas[0].medico_id,
-          medico_nombre: consultas[0].medico_nombre
+          id: consultasProcesadas[0].id,
+          paciente_nombre: consultasProcesadas[0].paciente_nombre,
+          medico_id: consultasProcesadas[0].medico_id,
+          medico_nombre: consultasProcesadas[0].medico_nombre,
+          especialidad_id: consultasProcesadas[0].especialidad_id,
+          especialidad_nombre: consultasProcesadas[0].especialidad_nombre
         });
       }
 
       res.json({
         success: true,
-        data: consultas || []
-      } as ApiResponse<typeof consultas>);
+        data: consultasProcesadas
+      } as ApiResponse<typeof consultasProcesadas>);
 
     } catch (error) {
       console.error('Error in getConsultasDelDia:', error);
@@ -345,6 +438,7 @@ export class ConsultaController {
   static async createConsulta(req: Request, res: Response): Promise<void> {
     try {
       const consultaData = req.body;
+      const clinicaAlias = process.env['CLINICA_ALIAS'];
 
       // Validar datos requeridos
       const requiredFields = ['paciente_id', 'medico_id', 'motivo_consulta', 'fecha_pautada', 'hora_pautada'];
@@ -358,6 +452,26 @@ export class ConsultaController {
         }
       }
 
+      // Validar que la fecha sea futura (manejo de zona horaria)
+      const fechaConsulta = new Date(consultaData.fecha_pautada + 'T00:00:00.000Z'); // Forzar UTC
+      const fechaActual = new Date();
+      fechaActual.setUTCHours(0, 0, 0, 0); // Usar UTC para evitar problemas de zona horaria
+      
+      console.log('🔍 Validación de fecha:', {
+        fechaRecibida: consultaData.fecha_pautada,
+        fechaConsulta: fechaConsulta.toISOString(),
+        fechaActual: fechaActual.toISOString(),
+        esFutura: fechaConsulta >= fechaActual
+      });
+      
+      if (fechaConsulta < fechaActual) {
+        res.status(400).json({
+          success: false,
+          error: { message: 'La fecha de la consulta debe ser futura (posterior a hoy)' }
+        } as ApiResponse<null>);
+        return;
+      }
+
       const { data: consulta, error } = await supabase
         .from('consultas_pacientes')
         .insert([{
@@ -366,7 +480,8 @@ export class ConsultaController {
           duracion_estimada: consultaData.duracion_estimada || 30,
           prioridad: consultaData.prioridad || 'normal',
           tipo_consulta: consultaData.tipo_consulta || 'primera_vez',
-          recordatorio_enviado: false
+          recordatorio_enviado: false,
+          clinica_alias: clinicaAlias
         }])
         .select()
         .single();

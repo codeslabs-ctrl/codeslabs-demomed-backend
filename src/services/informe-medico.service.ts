@@ -60,48 +60,82 @@ export class InformeMedicoService {
   // =====================================================
 
   async crearInforme(informe: Omit<InformeMedico, 'id' | 'fecha_creacion' | 'fecha_actualizacion' | 'numero_informe' | 'numero_secuencial' | 'creado_por'>): Promise<InformeMedico> {
-    try {
-      // Obtener el siguiente número secuencial
-      const { data: config, error: configError } = await supabase
-        .from('configuracion_informes')
-        .select('*')
-        .eq('clinica_alias', informe.clinica_alias)
-        .single();
+    const maxIntentos = 3;
+    
+    for (let intentos = 0; intentos < maxIntentos; intentos++) {
+      try {
+        console.log(`🔄 Creando informe (intento ${intentos + 1}/${maxIntentos})`);
+        
+        // Obtener el siguiente número secuencial
+        const { data: config, error: configError } = await supabase
+          .from('configuracion_informes')
+          .select('*')
+          .eq('clinica_alias', informe.clinica_alias)
+          .single();
 
-      if (configError) {
-        throw new Error(`Error obteniendo configuración: ${configError.message}`);
+        if (configError) {
+          throw new Error(`Error obteniendo configuración: ${configError.message}`);
+        }
+
+        // Generar número de informe
+        const numeroSecuencial = (config.contador_actual || 0) + 1;
+        const numeroInforme = `${config.prefijo_numero || 'INF'}-${numeroSecuencial.toString().padStart(6, '0')}`;
+        
+        console.log(`📋 Generando número de informe: ${numeroInforme} (secuencial: ${numeroSecuencial})`);
+
+        // ACTUALIZAR CONFIGURACIÓN ANTES de insertar (para evitar duplicados)
+        const { error: updateError } = await supabase
+          .from('configuracion_informes')
+          .update({ contador_actual: numeroSecuencial })
+          .eq('clinica_alias', informe.clinica_alias);
+
+        if (updateError) {
+          throw new Error(`Error actualizando configuración: ${updateError.message}`);
+        }
+
+        console.log(`✅ Configuración actualizada: contador_actual = ${numeroSecuencial}`);
+
+        // Crear el informe
+        const { data, error } = await supabase
+          .from('informes_medicos')
+          .insert({
+            ...informe,
+            numero_informe: numeroInforme,
+            creado_por: informe.medico_id
+          })
+          .select()
+          .single();
+
+        if (error) {
+          // Verificar si es error de clave duplicada
+          if (error.message.includes('duplicate key') && error.message.includes('numero_informe')) {
+            console.log(`⚠️ Número de informe duplicado: ${numeroInforme}. Reintentando...`);
+            
+            // Si es el último intento, lanzar error
+            if (intentos >= maxIntentos - 1) {
+              throw new Error(`Error creando informe: ${error.message}`);
+            }
+            
+            // Esperar un poco antes de reintentar (backoff exponencial)
+            const delay = 100 * Math.pow(2, intentos); // 100ms, 200ms, 400ms
+            console.log(`⏳ Esperando ${delay}ms antes del siguiente intento...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+          }
+          throw new Error(`Error creando informe: ${error.message}`);
+        }
+
+        console.log(`✅ Informe creado exitosamente: ${numeroInforme}`);
+        return data;
+        
+      } catch (error) {
+        console.error(`❌ Error en crearInforme (intento ${intentos + 1}):`, error);
+        throw error;
       }
-
-      // Generar número de informe
-      const numeroSecuencial = (config.ultimo_numero || 0) + 1;
-      const numeroInforme = `${config.prefijo || 'INF'}-${numeroSecuencial.toString().padStart(6, '0')}`;
-
-      // Crear el informe
-      const { data, error } = await supabase
-        .from('informes_medicos')
-        .insert({
-          ...informe,
-          numero_informe: numeroInforme,
-          creado_por: informe.medico_id
-        })
-        .select()
-        .single();
-
-      if (error) {
-        throw new Error(`Error creando informe: ${error.message}`);
-      }
-
-      // Actualizar el último número en la configuración
-      await supabase
-        .from('configuracion_informes')
-        .update({ ultimo_numero: numeroSecuencial })
-        .eq('clinica_alias', informe.clinica_alias);
-
-      return data;
-    } catch (error) {
-      console.error('Error en crearInforme:', error);
-      throw error;
     }
+    
+    // Si llegamos aquí, agotamos todos los intentos
+    throw new Error('No se pudo crear el informe después de múltiples intentos');
   }
 
   async obtenerInformes(filtros: {
