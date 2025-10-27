@@ -10,6 +10,7 @@ export interface RemisionData {
   fecha_respuesta?: string;
   fecha_creacion?: string;
   fecha_actualizacion?: string;
+  clinica_alias?: string;
 }
 
 export interface CreateRemisionRequest {

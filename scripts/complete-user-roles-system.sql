@@ -196,3 +196,4 @@ GROUP BY rol;
 -- 5. Se crearon vistas y funciones de utilidad
 -- =====================================================
 
+

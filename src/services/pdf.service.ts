@@ -2,8 +2,15 @@ import puppeteer from 'puppeteer';
 import { supabase } from '../config/database';
 import * as fs from 'fs';
 import * as path from 'path';
+import { FirmaService } from './firma.service.js';
 
 export class PDFService {
+  private firmaService: FirmaService;
+  
+  constructor() {
+    this.firmaService = new FirmaService();
+  }
+  
   /**
    * Genera un PDF de un informe médico
    * @param informeId ID del informe médico
@@ -43,8 +50,11 @@ export class PDFService {
         titulo: informe.titulo
       });
 
+      // Obtener firma digital del médico
+      const firmaBase64 = await this.firmaService.obtenerFirmaBase64(informe.medico_id);
+      
       // Generar HTML para el PDF
-      const htmlContent = await this.generarHTMLParaPDF(informe);
+      const htmlContent = await this.generarHTMLParaPDF(informe, firmaBase64);
       
       // Configurar Puppeteer
       const browser = await puppeteer.launch({
@@ -89,7 +99,7 @@ export class PDFService {
   /**
    * Genera el HTML para el PDF
    */
-  private async generarHTMLParaPDF(informe: any): Promise<string> {
+  private async generarHTMLParaPDF(informe: any, firmaBase64: string = ''): Promise<string> {
     const fechaEmision = new Date(informe.fecha_emision).toLocaleDateString('es-ES', {
       year: 'numeric',
       month: 'long',
@@ -254,6 +264,21 @@ export class PDFService {
             height: 1px;
           }
           
+          .signature-image-container {
+            margin: 20px auto;
+            text-align: center;
+          }
+          
+          .signature-image {
+            max-width: 200px;
+            max-height: 100px;
+            border: 1px solid #ddd;
+            background: white;
+            padding: 5px;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+          }
+          
           .signature-text {
             font-size: 9pt;
             color: #666;
@@ -307,7 +332,13 @@ export class PDFService {
           </div>
           
           <div class="signature-section">
-            <div class="signature-line"></div>
+            ${firmaBase64 ? `
+              <div class="signature-image-container">
+                <img src="${firmaBase64}" alt="Firma Digital" class="signature-image">
+              </div>
+            ` : `
+              <div class="signature-line"></div>
+            `}
             <div class="signature-text">
               <strong>Dr. ${informe.medicos?.nombres || ''} ${informe.medicos?.apellidos || ''}</strong><br>
               Especialista en Ginecología y Obstetricia

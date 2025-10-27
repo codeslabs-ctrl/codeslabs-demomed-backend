@@ -146,3 +146,4 @@ FROM public.usuarios;
 -- ✅ Fácil de mantener y entender
 -- =====================================================
 
+

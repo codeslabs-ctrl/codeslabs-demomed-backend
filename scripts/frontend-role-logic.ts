@@ -172,3 +172,4 @@ export const dashboardTemplate = `
 // 4. Templates: Lógica condicional en HTML
 // =====================================================
 
+

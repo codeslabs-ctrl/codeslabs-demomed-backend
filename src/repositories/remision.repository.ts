@@ -8,20 +8,39 @@ export class RemisionRepository extends SupabaseRepository<RemisionData> {
 
   async createRemision(remisionData: Omit<RemisionData, 'id' | 'fecha_creacion' | 'fecha_actualizacion'>): Promise<RemisionData> {
     try {
+      // Obtener clinica_alias desde variable de entorno
+      const clinicaAlias = process.env['CLINICA_ALIAS'];
+      
+      if (!clinicaAlias) {
+        throw new Error('CLINICA_ALIAS environment variable is not set');
+      }
+
       // Usar la función SQL crear_remision
       const { data, error } = await this.client.rpc('crear_remision', {
         p_paciente_id: remisionData.paciente_id,
         p_medico_remitente_id: remisionData.medico_remitente_id,
         p_medico_remitido_id: remisionData.medico_remitido_id,
         p_motivo_remision: remisionData.motivo_remision,
-        p_observaciones: remisionData.observaciones || null
+        p_observaciones: remisionData.observaciones || null,
+        p_clinica_alias: clinicaAlias
       });
 
       if (error) {
         throw new Error(`Database error: ${error.message}`);
       }
 
-      return data;
+      // Obtener la remisión completa creada
+      const { data: remisionCompleta, error: fetchError } = await this.client
+        .from(this.tableName)
+        .select('*')
+        .eq('id', data)
+        .single();
+
+      if (fetchError) {
+        throw new Error(`Error fetching created remision: ${fetchError.message}`);
+      }
+
+      return remisionCompleta;
     } catch (error) {
       throw new Error(`Failed to create remision: ${(error as Error).message}`);
     }

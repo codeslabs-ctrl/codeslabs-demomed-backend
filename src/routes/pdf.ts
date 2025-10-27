@@ -19,3 +19,4 @@ router.get('/informe/:id', pdfController.generarPDFInforme.bind(pdfController));
 
 export default router;
 
+

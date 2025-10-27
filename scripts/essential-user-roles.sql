@@ -121,3 +121,4 @@ ORDER BY rol, username;
 -- 5. ✅ Verificaciones de estado
 -- =====================================================
 
+

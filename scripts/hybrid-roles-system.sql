@@ -149,3 +149,4 @@ GROUP BY u.id, u.username, u.email, u.rol, u.activo, cr.descripcion, cr.color;
 -- ✅ Máxima flexibilidad futura
 -- =====================================================
 
+

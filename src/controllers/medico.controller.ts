@@ -145,11 +145,28 @@ export class MedicoController {
         return;
       }
 
-      // Crear el médico
-      const clinicaAlias = process.env['CLINICA_ALIAS'];
+      // Verificar si la cédula ya existe (si se proporciona)
+      if (cedula) {
+        const { data: existingMedicoByCedula } = await supabase
+          .from('medicos')
+          .select('id')
+          .eq('cedula', cedula)
+          .single();
+
+        if (existingMedicoByCedula) {
+          const response: ApiResponse = {
+            success: false,
+            error: { message: 'La cédula ya está registrada en el sistema' }
+          };
+          res.status(400).json(response);
+          return;
+        }
+      }
+
+      // Crear el médico (sin clinica_alias en la base de datos)
       const { data: newMedico, error: createError } = await supabase
         .from('medicos')
-        .insert({ nombres, apellidos, email, telefono, especialidad_id, clinica_alias: clinicaAlias })
+        .insert({ nombres, apellidos, cedula, email, telefono, especialidad_id })
         .select()
         .single();
 
@@ -193,6 +210,15 @@ export class MedicoController {
           .eq('id', newMedico.id);
         
         throw new Error(`User creation error: ${userError.message}`);
+      }
+
+      // Asignar médico a la clínica actual
+      const { ClinicaService } = await import('../services/clinica.service');
+      const clinicaService = new ClinicaService();
+      const asignacionExitosa = await clinicaService.asignarMedicoClinica(newMedico.id);
+      
+      if (!asignacionExitosa) {
+        console.warn('⚠️ No se pudo asignar el médico a la clínica, pero el médico fue creado');
       }
 
       // Enviar email con OTP
@@ -251,7 +277,7 @@ export class MedicoController {
     }
   }
 
-  async updateMedico(req: Request<{ id: string }, ApiResponse, { nombres?: string; apellidos?: string; email?: string; telefono?: string; especialidad_id?: number }>, res: Response<ApiResponse>): Promise<void> {
+  async updateMedico(req: Request<{ id: string }, ApiResponse, { nombres?: string; apellidos?: string; cedula?: string; email?: string; telefono?: string; especialidad_id?: number }>, res: Response<ApiResponse>): Promise<void> {
     try {
       const { id } = req.params;
       const updateData = req.body;
@@ -264,6 +290,25 @@ export class MedicoController {
         };
         res.status(400).json(response);
         return;
+      }
+
+      // Verificar si la cédula ya existe en otro médico (si se está actualizando)
+      if (updateData.cedula) {
+        const { data: existingMedicoByCedula } = await supabase
+          .from('medicos')
+          .select('id')
+          .eq('cedula', updateData.cedula)
+          .neq('id', medicoId) // Excluir el médico actual
+          .single();
+
+        if (existingMedicoByCedula) {
+          const response: ApiResponse = {
+            success: false,
+            error: { message: 'La cédula ya está registrada en el sistema' }
+          };
+          res.status(400).json(response);
+          return;
+        }
       }
 
       const { data: updatedMedico, error: updateError } = await supabase
@@ -299,32 +344,200 @@ export class MedicoController {
       if (isNaN(medicoId) || medicoId <= 0) {
         const response: ApiResponse = {
           success: false,
-          error: { message: 'Invalid medico ID' }
+          error: { message: 'ID de médico inválido' }
         };
         res.status(400).json(response);
         return;
       }
 
-      const { error: deleteError } = await supabase
+      // Verificar que el médico existe
+      const { data: medico, error: medicoError } = await supabase
         .from('medicos')
-        .delete()
-        .eq('id', medicoId);
+        .select('id, nombres, apellidos, activo')
+        .eq('id', medicoId)
+        .single();
 
-      if (deleteError) {
-        throw new Error(`Database error: ${deleteError.message}`);
+      if (medicoError || !medico) {
+        const response: ApiResponse = {
+          success: false,
+          error: { message: 'Médico no encontrado' }
+        };
+        res.status(404).json(response);
+        return;
       }
 
-      const response: ApiResponse = {
-        success: true,
-        data: { message: 'Medico deleted successfully' }
-      };
-      res.json(response);
+      // Verificar si el médico ya está inactivo
+      if (!medico.activo) {
+        const response: ApiResponse = {
+          success: false,
+          error: { message: 'El médico ya está inactivo' }
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      // Verificar si el médico tiene pacientes tratados
+      const tienePacientesTratados = await this.verificarPacientesTratados(medicoId);
+
+      if (tienePacientesTratados) {
+        // Marcar como inactivo en lugar de eliminar
+        await this.marcarMedicoComoInactivo(medicoId);
+        
+        const response: ApiResponse = {
+          success: true,
+          data: { 
+            message: `Médico ${medico.nombres} ${medico.apellidos} marcado como inactivo (tiene pacientes tratados)`,
+            accion: 'desactivado'
+          }
+        };
+        res.json(response);
+      } else {
+        // Eliminación física completa
+        await this.eliminarMedicoFisicamente(medicoId);
+        
+        const response: ApiResponse = {
+          success: true,
+          data: { 
+            message: `Médico ${medico.nombres} ${medico.apellidos} eliminado completamente del sistema`,
+            accion: 'eliminado'
+          }
+        };
+        res.json(response);
+      }
+
     } catch (error) {
+      console.error('Error eliminando médico:', error);
       const response: ApiResponse = {
         success: false,
         error: { message: (error as Error).message }
       };
-      res.status(400).json(response);
+      res.status(500).json(response);
+    }
+  }
+
+  /**
+   * Verifica si un médico tiene pacientes tratados
+   */
+  private async verificarPacientesTratados(medicoId: number): Promise<boolean> {
+    try {
+      // Verificar consultas existentes
+      const { data: consultas, error: consultasError } = await supabase
+        .from('consultas_pacientes')
+        .select('id')
+        .eq('medico_id', medicoId)
+        .limit(1);
+
+      if (consultasError) {
+        console.error('Error verificando consultas:', consultasError);
+        throw new Error('Error verificando consultas del médico');
+      }
+
+      if (consultas && consultas.length > 0) {
+        return true;
+      }
+
+      // Verificar historial médico
+      const { data: historial, error: historialError } = await supabase
+        .from('historico_pacientes')
+        .select('id')
+        .eq('medico_id', medicoId)
+        .limit(1);
+
+      if (historialError) {
+        console.error('Error verificando historial:', historialError);
+        throw new Error('Error verificando historial del médico');
+      }
+
+      if (historial && historial.length > 0) {
+        return true;
+      }
+
+      // Verificar informes médicos
+      const { data: informes, error: informesError } = await supabase
+        .from('informes_medicos')
+        .select('id')
+        .eq('medico_id', medicoId)
+        .limit(1);
+
+      if (informesError) {
+        console.error('Error verificando informes:', informesError);
+        throw new Error('Error verificando informes del médico');
+      }
+
+      if (informes && informes.length > 0) {
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      console.error('Error en verificarPacientesTratados:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Marca un médico como inactivo
+   */
+  private async marcarMedicoComoInactivo(medicoId: number): Promise<void> {
+    try {
+      // Marcar médico como inactivo
+      const { error: medicoError } = await supabase
+        .from('medicos')
+        .update({ activo: false })
+        .eq('id', medicoId);
+
+      if (medicoError) {
+        throw new Error(`Error marcando médico como inactivo: ${medicoError.message}`);
+      }
+
+      // Marcar usuario asociado como inactivo
+      const { error: usuarioError } = await supabase
+        .from('usuarios')
+        .update({ activo: false })
+        .eq('medico_id', medicoId);
+
+      if (usuarioError) {
+        console.warn('Advertencia: No se pudo marcar el usuario como inactivo:', usuarioError.message);
+        // No lanzamos error aquí porque el médico ya fue marcado como inactivo
+      }
+
+      console.log(`✅ Médico ${medicoId} marcado como inactivo`);
+    } catch (error) {
+      console.error('Error marcando médico como inactivo:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Elimina físicamente un médico del sistema
+   */
+  private async eliminarMedicoFisicamente(medicoId: number): Promise<void> {
+    try {
+      // Eliminar usuario asociado primero (por las foreign keys)
+      const { error: usuarioError } = await supabase
+        .from('usuarios')
+        .delete()
+        .eq('medico_id', medicoId);
+
+      if (usuarioError) {
+        console.warn('Advertencia: No se pudo eliminar el usuario:', usuarioError.message);
+        // Continuamos con la eliminación del médico
+      }
+
+      // Eliminar médico
+      const { error: medicoError } = await supabase
+        .from('medicos')
+        .delete()
+        .eq('id', medicoId);
+
+      if (medicoError) {
+        throw new Error(`Error eliminando médico: ${medicoError.message}`);
+      }
+
+      console.log(`✅ Médico ${medicoId} eliminado físicamente del sistema`);
+    } catch (error) {
+      console.error('Error eliminando médico físicamente:', error);
+      throw error;
     }
   }
 

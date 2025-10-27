@@ -118,3 +118,4 @@ checkExistingTables().then(() => {
   process.exit(1);
 });
 
+

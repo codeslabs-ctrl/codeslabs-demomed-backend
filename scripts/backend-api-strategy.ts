@@ -251,3 +251,4 @@ export const serviciosRoutes = (router: any) => {
 // GET    /api/v1/consultas/:id/servicios      - Servicios de consulta (Secretaria/Admin)
 // =====================================================
 
+

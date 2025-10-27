@@ -118,10 +118,53 @@ export class PatientService {
         throw new Error('Sex must be one of: Masculino, Femenino, Otro');
       }
 
+      // Validate email uniqueness
+      if (patientData.email) {
+        console.log('🔍 PatientService - Verificando unicidad del email:', patientData.email);
+        const { data: existingPatientByEmail } = await supabase
+          .from('pacientes')
+          .select('id')
+          .eq('email', patientData.email)
+          .single();
+
+        if (existingPatientByEmail) {
+          console.error('❌ PatientService - Email ya existe:', patientData.email);
+          throw new Error('El email ya está registrado en el sistema');
+        }
+      }
+
+      // Validate cedula uniqueness
+      if (patientData.cedula) {
+        console.log('🔍 PatientService - Verificando unicidad de la cédula:', patientData.cedula);
+        const { data: existingPatientByCedula } = await supabase
+          .from('pacientes')
+          .select('id')
+          .eq('cedula', patientData.cedula)
+          .single();
+
+        if (existingPatientByCedula) {
+          console.error('❌ PatientService - Cédula ya existe:', patientData.cedula);
+          throw new Error('La cédula ya está registrada en el sistema');
+        }
+      }
+
       // Separar datos del paciente de los datos médicos
       const { motivo_consulta, diagnostico, conclusiones, plan, ...patientBasicData } = patientData;
       
+      // Agregar clinica_alias desde variable de entorno
+      const clinicaAlias = process.env['CLINICA_ALIAS'];
+      if (!clinicaAlias) {
+        throw new Error('CLINICA_ALIAS no está configurada en las variables de entorno');
+      }
+      
+      // Incluir clinica_alias en los datos del paciente
+      const patientDataWithClinica = {
+        ...patientBasicData,
+        clinica_alias: clinicaAlias
+      };
+      
       console.log('✅ PatientService - Validaciones pasadas, iniciando transacción...');
+      console.log('🏥 PatientService - Clínica asignada:', clinicaAlias);
       
       // Usar transacción para garantizar integridad de datos
       const medicalData = {
@@ -129,15 +172,16 @@ export class PatientService {
         diagnostico: diagnostico || null,
         conclusiones: conclusiones || null,
         plan: plan || null,
-        medico_id: medicoId || null
+        medico_id: medicoId || null,
+        clinica_alias: clinicaAlias // También incluir en datos médicos
       };
       
-      console.log('🔍 PatientService - Datos del paciente básico:', JSON.stringify(patientBasicData, null, 2));
+      console.log('🔍 PatientService - Datos del paciente con clínica:', JSON.stringify(patientDataWithClinica, null, 2));
       console.log('🔍 PatientService - Datos médicos:', JSON.stringify(medicalData, null, 2));
       console.log('🔍 PatientService - Medico ID:', medicoId);
       
       const { data: result, error: transactionError } = await supabase.rpc('create_patient_with_history', {
-        patient_data: patientBasicData,
+        patient_data: patientDataWithClinica,
         medical_data: medicalData
       });
 

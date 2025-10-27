@@ -111,7 +111,9 @@ export class FinalizarConsultaController {
         .update({ 
           estado: 'completada',
           observaciones: observaciones || null,
-          fecha_finalizacion: new Date().toISOString()
+          fecha_finalizacion: new Date().toISOString(),
+          fecha_pago: new Date().toISOString(),  // Marcar como pagada automáticamente
+          metodo_pago: 'Efectivo'  // Método por defecto al finalizar
         })
         .eq('id', id);
       

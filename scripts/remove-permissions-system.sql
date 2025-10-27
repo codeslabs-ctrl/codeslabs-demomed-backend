@@ -35,3 +35,4 @@ WHERE activo = TRUE;
 -- - Sin complejidad innecesaria
 -- =====================================================
 
+

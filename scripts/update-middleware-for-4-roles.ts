@@ -114,3 +114,4 @@ export const finanzasOrAdminMiddleware = [authenticateToken, hasRole(['finanzas'
 // router.post('/finanzas', requireFinanzasCreate, controller.createFinanza);
 // =====================================================
 
+

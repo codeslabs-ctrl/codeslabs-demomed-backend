@@ -170,3 +170,6 @@ export const medicoSecretariaMiddleware = [authenticateToken, requireRole(['medi
 
 // Middleware para roles que pueden ver reportes
 export const reportesSecurityMiddleware = [authenticateToken, requireRole(['medico', 'secretaria', 'finanzas', 'administrador'])];
+
+// Middleware específico para eliminación de médicos (solo administrador y secretaria)
+export const eliminarMedicoSecurityMiddleware = [authenticateToken, requireRole(['administrador', 'secretaria'])];

@@ -237,3 +237,4 @@ interface FinalizarConsultaRequest {
 - Indicadores de carga
 - Mensajes de confirmación
 
+

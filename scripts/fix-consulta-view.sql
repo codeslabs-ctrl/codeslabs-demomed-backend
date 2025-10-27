@@ -59,3 +59,4 @@ WHERE cp.fecha_pautada = CURRENT_DATE
 -- 3. Verificar que la vista funciona
 SELECT 'Vista creada exitosamente' as resultado;
 
+

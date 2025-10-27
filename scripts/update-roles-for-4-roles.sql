@@ -182,3 +182,4 @@ WHERE u.activo = TRUE AND m.activo = TRUE AND pm.activo = TRUE;
 -- FINANZAS: finanzas (todas), dashboard/pacientes/consultas/reportes (solo ver)
 -- =====================================================
 
+
