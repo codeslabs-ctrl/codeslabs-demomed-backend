@@ -4,7 +4,8 @@ import { PatientController } from '../controllers/patient.controller.js';
 import { 
   medicoSecurityMiddleware,
   adminSecurityMiddleware,
-  validatePaciente
+  validatePaciente,
+  validatePacienteUpdate
 } from '../middleware/security.js';
 
 const router = express.Router();
@@ -28,7 +29,7 @@ router.get('/email/:email', medicoSecurityMiddleware, (req: any, res: any) => pa
 router.get('/check-email', medicoSecurityMiddleware, (req: any, res: any) => patientController.checkEmailAvailability(req, res));
 router.get('/:id', medicoSecurityMiddleware, (req: any, res: any) => patientController.getPatientById(req, res));
 router.post('/', medicoSecurityMiddleware, validatePaciente, (req: any, res: any) => patientController.createPatient(req, res));
-router.put('/:id', medicoSecurityMiddleware, validatePaciente, (req: any, res: any) => patientController.updatePatient(req, res));
+router.put('/:id', medicoSecurityMiddleware, validatePacienteUpdate, (req: any, res: any) => patientController.updatePatient(req, res));
 router.delete('/:id', adminSecurityMiddleware, (req: any, res: any) => patientController.deletePatient(req, res));
 
 export default router;

@@ -130,15 +130,30 @@ export const validateInforme = validateInput(Joi.object({
   estado: Joi.string().valid('borrador', 'firmado', 'enviado').default('borrador')
 }));
 
-// Validación específica para pacientes
+// Validación específica para pacientes (solo datos básicos)
 export const validatePaciente = validateInput(Joi.object({
   nombres: Joi.string().min(2).required(),
   apellidos: Joi.string().min(2).required(),
-  cedula: Joi.string().min(7).required(),
+  cedula: Joi.string().min(7).optional(),
   email: Joi.string().email().required(),
   telefono: Joi.string().min(8).required(),
-  fecha_nacimiento: Joi.date().required(),
-  sexo: Joi.string().valid('M', 'F').required()
+  edad: Joi.number().integer().min(0).max(150).required(),
+  sexo: Joi.string().valid('Masculino', 'Femenino', 'Otro').required()
+}));
+
+// Validación para actualización de pacientes (incluye campos médicos opcionales)
+export const validatePacienteUpdate = validateInput(Joi.object({
+  nombres: Joi.string().min(2).optional(),
+  apellidos: Joi.string().min(2).optional(),
+  cedula: Joi.string().min(7).optional(),
+  email: Joi.string().email().optional(),
+  telefono: Joi.string().min(8).optional(),
+  edad: Joi.number().integer().min(0).max(150).optional(),
+  sexo: Joi.string().valid('Masculino', 'Femenino', 'Otro').optional(),
+  motivo_consulta: Joi.string().allow('').optional(),
+  diagnostico: Joi.string().allow('').optional(),
+  conclusiones: Joi.string().allow('').optional(),
+  plan: Joi.string().allow('').optional()
 }));
 
 // Validación específica para consultas

@@ -261,9 +261,19 @@ export class ConsultaController {
   // Obtener consultas del día
   static async getConsultasHoy(_req: Request, res: Response): Promise<void> {
     try {
+      // Obtener fecha actual en zona horaria de Venezuela (GMT-4)
+      const now = new Date();
+      // Crear fecha en zona horaria de Venezuela usando toLocaleDateString
+      const fechaHoyVenezuela = now.toLocaleDateString('en-CA', { 
+        timeZone: 'America/Caracas' 
+      }); // Formato YYYY-MM-DD
+      
+      console.log('🔍 getConsultasHoy - Fecha filtro (Venezuela):', fechaHoyVenezuela);
+
       const { data: consultas, error } = await supabase
         .from('vista_consultas_hoy')
-        .select('*');
+        .select('*')
+        .eq('fecha_pautada', fechaHoyVenezuela);
 
       if (error) {
         console.error('Error fetching consultas hoy:', error);
@@ -309,11 +319,22 @@ export class ConsultaController {
         return;
       }
 
+      // Obtener fecha actual en zona horaria de Venezuela (GMT-4)
+      const now = new Date();
+      // Crear fecha en zona horaria de Venezuela usando toLocaleDateString
+      const fechaHoyVenezuela = now.toLocaleDateString('en-CA', { 
+        timeZone: 'America/Caracas' 
+      }); // Formato YYYY-MM-DD
+      
+      console.log('🔍 Fecha actual UTC:', now.toISOString());
+      console.log('🔍 Fecha actual Venezuela:', now.toLocaleString('es-VE', { timeZone: 'America/Caracas' }));
+      console.log('🔍 Fecha filtro (Venezuela):', fechaHoyVenezuela);
+
       // Consulta simple sin joins complejos
       let query = supabase
         .from('consultas_pacientes')
         .select('*')
-        .eq('fecha_pautada', new Date().toISOString().split('T')[0])
+        .eq('fecha_pautada', fechaHoyVenezuela)
         .in('estado_consulta', ['agendada', 'reagendada', 'en_progreso'])
         .order('hora_pautada', { ascending: true });
 
