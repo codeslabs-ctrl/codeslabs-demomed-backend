@@ -215,6 +215,34 @@ export class PatientService {
         }
       }
 
+      // Validate email uniqueness if provided
+      if (patientData.email) {
+        const { data: existingPatientByEmail } = await supabase
+          .from('pacientes')
+          .select('id')
+          .eq('email', patientData.email)
+          .neq('id', id) // Excluir el paciente actual
+          .single();
+
+        if (existingPatientByEmail) {
+          throw new Error('El email ya está registrado en el sistema');
+        }
+      }
+
+      // Validate cedula uniqueness if provided
+      if (patientData.cedula) {
+        const { data: existingPatientByCedula } = await supabase
+          .from('pacientes')
+          .select('id')
+          .eq('cedula', patientData.cedula)
+          .neq('id', id) // Excluir el paciente actual
+          .single();
+
+        if (existingPatientByCedula) {
+          throw new Error('La cédula ya está registrada en el sistema');
+        }
+      }
+
       return await this.patientRepository.update(id, patientData);
     } catch (error) {
       throw new Error(`Failed to update patient: ${(error as Error).message}`);

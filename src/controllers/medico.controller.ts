@@ -292,6 +292,25 @@ export class MedicoController {
         return;
       }
 
+      // Verificar si el email ya existe en otro médico (si se está actualizando)
+      if (updateData.email) {
+        const { data: existingMedicoByEmail } = await supabase
+          .from('medicos')
+          .select('id')
+          .eq('email', updateData.email)
+          .neq('id', medicoId) // Excluir el médico actual
+          .single();
+
+        if (existingMedicoByEmail) {
+          const response: ApiResponse = {
+            success: false,
+            error: { message: 'El email ya está registrado en el sistema' }
+          };
+          res.status(400).json(response);
+          return;
+        }
+      }
+
       // Verificar si la cédula ya existe en otro médico (si se está actualizando)
       if (updateData.cedula) {
         const { data: existingMedicoByCedula } = await supabase
