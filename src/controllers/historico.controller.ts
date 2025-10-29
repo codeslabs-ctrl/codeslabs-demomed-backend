@@ -69,6 +69,70 @@ export class HistoricoController {
     }
   }
 
+  // Obtener médicos que han creado historias para un paciente
+  async getMedicosConHistoriaByPaciente(req: Request<{ paciente_id: string }, ApiResponse>, res: Response<ApiResponse>): Promise<void> {
+    try {
+      const { paciente_id } = req.params;
+
+      const pacienteId = parseInt(paciente_id);
+      if (isNaN(pacienteId)) {
+        const response: ApiResponse = {
+          success: false,
+          error: { message: 'Invalid paciente_id' }
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      const medicos = await this.historicoService.getMedicosConHistoriaByPaciente(pacienteId);
+
+      const response: ApiResponse = {
+        success: true,
+        data: medicos
+      };
+      res.json(response);
+    } catch (error) {
+      const response: ApiResponse = {
+        success: false,
+        error: { message: (error as Error).message }
+      };
+      res.status(400).json(response);
+    }
+  }
+
+  // Obtener historia específica de un médico para un paciente
+  async getHistoricoByPacienteAndMedico(req: Request<{ paciente_id: string, medico_id: string }, ApiResponse>, res: Response<ApiResponse>): Promise<void> {
+    try {
+      const { paciente_id, medico_id } = req.params;
+
+      const pacienteId = parseInt(paciente_id);
+      const medicoId = parseInt(medico_id);
+      
+      if (isNaN(pacienteId) || isNaN(medicoId)) {
+        const response: ApiResponse = {
+          success: false,
+          error: { message: 'Invalid paciente_id or medico_id' }
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      const historico = await this.historicoService.getHistoricoByPacienteAndMedico(pacienteId, medicoId);
+
+      const response: ApiResponse = {
+        success: true,
+        data: historico
+      };
+      res.json(response);
+    } catch (error) {
+      const response: ApiResponse = {
+        success: false,
+        error: { message: (error as Error).message }
+      };
+      res.status(400).json(response);
+    }
+  }
+
   async getHistoricoByMedico(req: Request<{ medico_id: string }, ApiResponse>, res: Response<ApiResponse>): Promise<void> {
     try {
       const { medico_id } = req.params;

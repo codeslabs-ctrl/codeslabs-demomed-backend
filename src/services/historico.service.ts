@@ -132,6 +132,112 @@ export class HistoricoService {
     }
   }
 
+  // Obtener médicos que han creado historias para un paciente específico
+  async getMedicosConHistoriaByPaciente(pacienteId: number): Promise<any[]> {
+    try {
+      if (!pacienteId || pacienteId <= 0) {
+        throw new Error('Valid paciente ID is required');
+      }
+
+      console.log('🔍 getMedicosConHistoriaByPaciente - pacienteId:', pacienteId);
+
+      // Usar consulta directa a la tabla historico_pacientes con join
+      const { data, error } = await supabase
+        .from('historico_pacientes')
+        .select(`
+          medico_id,
+          fecha_consulta,
+          medicos!inner(
+            nombres,
+            apellidos,
+            especialidad_id,
+            especialidades!inner(
+              nombre_especialidad
+            )
+          )
+        `)
+        .eq('paciente_id', pacienteId)
+        .order('fecha_consulta', { ascending: false });
+
+      if (error) {
+        console.error('❌ Error en consulta SQL:', error);
+        throw new Error(`Database error: ${error.message}`);
+      }
+
+      // Agrupar por médico y obtener la información más reciente de cada uno
+      const medicosMap = new Map();
+      
+      data?.forEach(historia => {
+        if (!medicosMap.has(historia.medico_id)) {
+          const medico = Array.isArray(historia.medicos) ? historia.medicos[0] : historia.medicos;
+          const especialidad = Array.isArray(medico?.especialidades) ? medico.especialidades[0] : medico?.especialidades;
+          
+          medicosMap.set(historia.medico_id, {
+            medico_id: historia.medico_id,
+            medico_nombre: medico?.nombres || 'Médico',
+            medico_apellidos: medico?.apellidos || 'Desconocido',
+            especialidad_nombre: especialidad?.nombre_especialidad || 'Sin especialidad',
+            ultima_consulta: historia.fecha_consulta
+          });
+        }
+      });
+
+      const medicos = Array.from(medicosMap.values());
+      console.log('✅ Médicos con historia encontrados:', medicos.length);
+      
+      return medicos;
+    } catch (error) {
+      console.error('❌ Error en getMedicosConHistoriaByPaciente:', error);
+      throw new Error(`Failed to get medicos con historia by paciente: ${(error as Error).message}`);
+    }
+  }
+
+  // Obtener historia específica de un médico para un paciente
+  async getHistoricoByPacienteAndMedico(pacienteId: number, medicoId: number): Promise<HistoricoWithDetails | null> {
+    try {
+      if (!pacienteId || pacienteId <= 0) {
+        throw new Error('Valid paciente ID is required');
+      }
+      if (!medicoId || medicoId <= 0) {
+        throw new Error('Valid medico ID is required');
+      }
+
+      console.log('🔍 getHistoricoByPacienteAndMedico - pacienteId:', pacienteId, 'medicoId:', medicoId);
+
+      // Usar consulta directa a la tabla historico_pacientes
+      const { data, error } = await supabase
+        .from('historico_pacientes')
+        .select(`
+          *,
+          medicos!inner(
+            nombres,
+            apellidos,
+            especialidad_id,
+            especialidades!inner(
+              nombre_especialidad
+            )
+          )
+        `)
+        .eq('paciente_id', pacienteId)
+        .eq('medico_id', medicoId)
+        .order('fecha_consulta', { ascending: false })
+        .limit(1);
+
+      if (error) {
+        console.error('❌ Error en consulta SQL:', error);
+        throw new Error(`Database error: ${error.message}`);
+      }
+
+      const historia = data && data.length > 0 ? data[0] : null;
+      console.log('✅ Historia encontrada:', historia ? 'Sí' : 'No');
+      
+      return historia;
+    } catch (error) {
+      console.error('❌ Error en getHistoricoByPacienteAndMedico:', error);
+      throw new Error(`Failed to get historico by paciente and medico: ${(error as Error).message}`);
+    }
+  }
+
   async updateHistorico(historicoId: number, updateData: Partial<HistoricoData>): Promise<HistoricoWithDetails> {
     try {
       if (!historicoId || historicoId <= 0) {

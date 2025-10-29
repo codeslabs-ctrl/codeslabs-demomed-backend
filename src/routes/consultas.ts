@@ -1,15 +1,15 @@
 import express from 'express';
 import { ConsultaController } from '../controllers/consulta.controller.js';
 import { authenticateToken } from '../middleware/auth.js';
-import { medicoSecurityMiddleware, secretariaSecurityMiddleware } from '../middleware/security.js';
+import { secretariaSecurityMiddleware, medicoSecretariaMiddleware } from '../middleware/security.js';
 import finalizarConsultaController from '../controllers/finalizar-consulta.controller.js';
 
 const router = express.Router();
 
 // Rutas para consultas con middlewares de seguridad
-router.get('/', medicoSecurityMiddleware, ConsultaController.getConsultas);
-router.get('/hoy', medicoSecurityMiddleware, ConsultaController.getConsultasHoy);
-router.get('/del-dia', medicoSecurityMiddleware, ConsultaController.getConsultasDelDia);
+router.get('/', medicoSecretariaMiddleware, ConsultaController.getConsultas);
+router.get('/hoy', medicoSecretariaMiddleware, ConsultaController.getConsultasHoy);
+router.get('/del-dia', medicoSecretariaMiddleware, ConsultaController.getConsultasDelDia);
 router.get('/pendientes', authenticateToken, ConsultaController.getConsultasPendientes);
 router.get('/search', authenticateToken, ConsultaController.searchConsultas);
 router.get('/estadisticas', authenticateToken, ConsultaController.getEstadisticasConsultas);

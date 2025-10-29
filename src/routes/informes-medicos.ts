@@ -10,7 +10,7 @@ import {
   verificarPermisosFirma
 } from '../middleware/firma-digital.middleware';
 import { 
-  medicoSecurityMiddleware,
+  medicoSecretariaMiddleware,
   adminSecurityMiddleware,
   validateInforme,
   informeLimiter,
@@ -29,16 +29,16 @@ router.use(verifyClinica);
 // =====================================================
 
 // Crear nuevo informe médico (solo médicos y admins)
-router.post('/', medicoSecurityMiddleware, validateInforme, informeLimiter, informeMedicoController.crearInforme);
+router.post('/', medicoSecretariaMiddleware, validateInforme, informeLimiter, informeMedicoController.crearInforme);
 
 // Obtener lista de informes médicos (médicos y admins)
-router.get('/', medicoSecurityMiddleware, informeMedicoController.obtenerInformes);
+router.get('/', medicoSecretariaMiddleware, informeMedicoController.obtenerInformes);
 
 // Obtener informe médico por ID (médicos y admins)
-router.get('/:id', medicoSecurityMiddleware, verificarFirmaDigital, informeMedicoController.obtenerInformePorId);
+router.get('/:id', medicoSecretariaMiddleware, verificarFirmaDigital, informeMedicoController.obtenerInformePorId);
 
 // Actualizar informe médico (solo si no está firmado) (médicos y admins)
-router.put('/:id', medicoSecurityMiddleware, verificarFirmaDigital, noRequerirFirmaDigital, validateInforme, informeMedicoController.actualizarInforme);
+router.put('/:id', medicoSecretariaMiddleware, verificarFirmaDigital, noRequerirFirmaDigital, validateInforme, informeMedicoController.actualizarInforme);
 
 // Eliminar informe médico (solo admins)
 router.delete('/:id', adminSecurityMiddleware, informeMedicoController.eliminarInforme);
@@ -48,13 +48,13 @@ router.delete('/:id', adminSecurityMiddleware, informeMedicoController.eliminarI
 // =====================================================
 
 // Obtener templates de informes (médicos y admins)
-router.get('/templates/list', medicoSecurityMiddleware, informeMedicoController.obtenerTemplates);
+router.get('/templates/list', medicoSecretariaMiddleware, informeMedicoController.obtenerTemplates);
 
 // Crear nuevo template de informe (solo admins)
 router.post('/templates', adminSecurityMiddleware, informeMedicoController.crearTemplate);
 
 // Obtener template por ID (médicos y admins)
-router.get('/templates/:id', medicoSecurityMiddleware, informeMedicoController.obtenerTemplate);
+router.get('/templates/:id', medicoSecretariaMiddleware, informeMedicoController.obtenerTemplate);
 
 // Actualizar template (solo admins)
 router.put('/templates/:id', adminSecurityMiddleware, informeMedicoController.actualizarTemplate);
@@ -67,23 +67,23 @@ router.delete('/templates/:id', adminSecurityMiddleware, informeMedicoController
 // =====================================================
 
 // Obtener anexos de un informe (médicos y admins)
-router.get('/:informeId/anexos', medicoSecurityMiddleware, informeMedicoController.obtenerAnexosPorInforme);
+router.get('/:informeId/anexos', medicoSecretariaMiddleware, informeMedicoController.obtenerAnexosPorInforme);
 
 // Agregar anexo a un informe (médicos y admins)
-router.post('/:informeId/anexos', medicoSecurityMiddleware, informeMedicoController.agregarAnexo);
+router.post('/:informeId/anexos', medicoSecretariaMiddleware, informeMedicoController.agregarAnexo);
 
 // Eliminar anexo de un informe (médicos y admins)
-router.delete('/anexos/:anexoId', medicoSecurityMiddleware, informeMedicoController.eliminarAnexo);
+router.delete('/anexos/:anexoId', medicoSecretariaMiddleware, informeMedicoController.eliminarAnexo);
 
 // =====================================================
 // ENVÍOS
 // =====================================================
 
 // Obtener envíos de un informe (médicos y admins)
-router.get('/:informeId/envios', medicoSecurityMiddleware, informeMedicoController.obtenerEnviosPorInforme);
+router.get('/:informeId/envios', medicoSecretariaMiddleware, informeMedicoController.obtenerEnviosPorInforme);
 
 // Enviar informe a paciente (médicos y admins, con rate limiting para emails)
-router.post('/:informeId/enviar', medicoSecurityMiddleware, emailLimiter, informeMedicoController.enviarInforme);
+router.post('/:informeId/enviar', medicoSecretariaMiddleware, emailLimiter, informeMedicoController.enviarInforme);
 
 // =====================================================
 // FIRMA DIGITAL

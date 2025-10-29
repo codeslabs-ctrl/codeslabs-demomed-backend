@@ -234,6 +234,92 @@ export class PatientController {
     }
   }
 
+  async hasConsultations(req: AuthenticatedRequest, res: Response<ApiResponse>): Promise<void> {
+    try {
+      const { id } = req.params;
+      
+      if (!id) {
+        const response: ApiResponse = {
+          success: false,
+          error: { message: 'ID del paciente es requerido' }
+        };
+        res.status(400).json(response);
+        return;
+      }
+      
+      // Verificar si el paciente tiene consultas
+      const { count, error } = await supabase
+        .from('consultas_pacientes')
+        .select('*', { count: 'exact', head: true })
+        .eq('paciente_id', id);
+      
+      if (error) {
+        throw new Error(error.message);
+      }
+      
+      const response: ApiResponse = {
+        success: true,
+        data: { hasConsultations: (count || 0) > 0 }
+      };
+      res.json(response);
+    } catch (error) {
+      const response: ApiResponse = {
+        success: false,
+        error: { message: (error as Error).message }
+      };
+      res.status(500).json(response);
+    }
+  }
+
+  async togglePatientStatus(req: AuthenticatedRequest, res: Response<ApiResponse>): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { activo } = req.body;
+      
+      if (!id) {
+        const response: ApiResponse = {
+          success: false,
+          error: { message: 'ID del paciente es requerido' }
+        };
+        res.status(400).json(response);
+        return;
+      }
+      
+      if (typeof activo !== 'boolean') {
+        const response: ApiResponse = {
+          success: false,
+          error: { message: 'El campo activo debe ser un booleano' }
+        };
+        res.status(400).json(response);
+        return;
+      }
+      
+      // Actualizar el estado del paciente
+      const { data, error } = await supabase
+        .from('pacientes')
+        .update({ activo })
+        .eq('id', id)
+        .select()
+        .single();
+      
+      if (error) {
+        throw new Error(error.message);
+      }
+      
+      const response: ApiResponse = {
+        success: true,
+        data
+      };
+      res.json(response);
+    } catch (error) {
+      const response: ApiResponse = {
+        success: false,
+        error: { message: (error as Error).message }
+      };
+      res.status(500).json(response);
+    }
+  }
+
   async searchPatients(req: Request<{}, ApiResponse, {}, { name?: string }>, res: Response<ApiResponse>): Promise<void> {
     try {
       const { name } = req.query;

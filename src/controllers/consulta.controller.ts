@@ -335,7 +335,7 @@ export class ConsultaController {
         .from('consultas_pacientes')
         .select('*')
         .eq('fecha_pautada', fechaHoyVenezuela)
-        .in('estado_consulta', ['agendada', 'reagendada', 'en_progreso'])
+        .in('estado_consulta', ['agendada', 'reagendada', 'en_progreso', 'por_agendar'])
         .order('hora_pautada', { ascending: true });
 
       // Si el usuario es médico, filtrar solo sus consultas

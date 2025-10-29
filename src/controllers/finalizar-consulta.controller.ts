@@ -8,13 +8,20 @@ export class FinalizarConsultaController {
       const { id } = req.params;
       const { servicios, observaciones } = req.body;
       
+      console.log('🔍 Finalizando consulta ID:', id);
+      console.log('🔍 Servicios recibidos:', servicios);
+      console.log('🔍 Observaciones:', observaciones);
+      
       // Validaciones
+      console.log('🔍 Validando servicios...');
       if (!servicios || !Array.isArray(servicios) || servicios.length === 0) {
+        console.log('❌ Error: No hay servicios seleccionados');
         return res.status(400).json({ 
           success: false, 
           error: 'Debe seleccionar al menos un servicio' 
         });
       }
+      console.log('✅ Servicios válidos:', servicios.length);
       
       // 1. Verificar que la consulta existe y está en estado correcto
       const { data: consulta, error: consultaError } = await supabase
@@ -73,17 +80,42 @@ export class FinalizarConsultaController {
         }
       }
       
-      // 5. Insertar servicios de la consulta
-      const clinicaAlias = process.env['CLINICA_ALIAS'];
+      // 5. Verificar si ya existen servicios para esta consulta
+      const { data: serviciosExistentes, error: checkError } = await supabase
+        .from('servicios_consulta')
+        .select('id')
+        .eq('consulta_id', parseInt(id));
+      
+      if (checkError) {
+        console.log('❌ Error verificando servicios existentes:', checkError);
+        return res.status(400).json({ success: false, error: checkError.message });
+      }
+      
+      if (serviciosExistentes && serviciosExistentes.length > 0) {
+        console.log('⚠️ Ya existen servicios para esta consulta, eliminando anteriores...');
+        const { error: deleteError } = await supabase
+          .from('servicios_consulta')
+          .delete()
+          .eq('consulta_id', parseInt(id));
+        
+        if (deleteError) {
+          console.log('❌ Error eliminando servicios anteriores:', deleteError);
+          return res.status(400).json({ success: false, error: deleteError.message });
+        }
+      }
+      
+      // 6. Insertar servicios de la consulta
       const serviciosData = servicios.map((servicio: any) => ({
         consulta_id: parseInt(id),
         servicio_id: parseInt(servicio.servicio_id),
         monto_pagado: parseFloat(servicio.monto_pagado),
         moneda_pago: servicio.moneda,
         tipo_cambio: tipoCambioActual,
-        observaciones: servicio.observaciones || null,
-        clinica_alias: clinicaAlias
+        observaciones: servicio.observaciones || null
       }));
+      
+      console.log('🔍 Datos de servicios a insertar:', serviciosData);
+      console.log('🔍 Insertando en tabla servicios_consulta...');
       
       const { data: serviciosInsertados, error: serviciosInsertError } = await supabase
         .from('servicios_consulta')
@@ -101,30 +133,79 @@ export class FinalizarConsultaController {
           )
         `);
       
+      console.log('🔍 Resultado inserción servicios:', { serviciosInsertados, serviciosInsertError });
+      
       if (serviciosInsertError) {
+        console.log('❌ Error insertando servicios:', serviciosInsertError);
         return res.status(400).json({ success: false, error: serviciosInsertError.message });
       }
       
-      // 6. Actualizar estado de la consulta
+      // 7. Actualizar estado de la consulta
+      console.log('🔍 Actualizando estado de consulta a "finalizada"...');
       const { error: updateError } = await supabase
         .from('consultas_pacientes')
         .update({ 
-          estado: 'completada',
+          estado_consulta: 'finalizada',
           observaciones: observaciones || null,
-          fecha_finalizacion: new Date().toISOString(),
-          fecha_pago: new Date().toISOString(),  // Marcar como pagada automáticamente
+          fecha_culminacion: new Date().toISOString(),  // Usar fecha_culminacion en lugar de fecha_finalizacion
+          fecha_pago: new Date().toISOString().split('T')[0],  // Solo la fecha (YYYY-MM-DD)
           metodo_pago: 'Efectivo'  // Método por defecto al finalizar
         })
         .eq('id', id);
       
+      console.log('🔍 Resultado actualización consulta:', { updateError });
+      
       if (updateError) {
+        console.log('❌ Error actualizando consulta, haciendo rollback de servicios...');
+        // Rollback: eliminar los servicios que acabamos de insertar
+        const { error: rollbackError } = await supabase
+          .from('servicios_consulta')
+          .delete()
+          .eq('consulta_id', parseInt(id));
+        
+        if (rollbackError) {
+          console.log('❌ Error en rollback:', rollbackError);
+        } else {
+          console.log('✅ Rollback exitoso: servicios eliminados');
+        }
+        
         return res.status(400).json({ success: false, error: updateError.message });
       }
       
-      // 7. Calcular totales
-      const { data: totales } = await supabase
+      // 8. Calcular totales
+      console.log('🔍 Calculando totales de la consulta...');
+      const { data: totales, error: totalesError } = await supabase
         .rpc('calcular_total_consulta', { p_consulta_id: parseInt(id) });
       
+      if (totalesError) {
+        console.log('❌ Error calculando totales, haciendo rollback...');
+        // Rollback: eliminar los servicios y revertir el estado de la consulta
+        const { error: rollbackError1 } = await supabase
+          .from('servicios_consulta')
+          .delete()
+          .eq('consulta_id', parseInt(id));
+        
+        const { error: rollbackError2 } = await supabase
+          .from('consultas_pacientes')
+          .update({ 
+            estado_consulta: 'agendada',  // Revertir al estado anterior
+            observaciones: null,
+            fecha_culminacion: null,
+            fecha_pago: null,
+            metodo_pago: null
+          })
+          .eq('id', id);
+        
+        if (rollbackError1 || rollbackError2) {
+          console.log('❌ Error en rollback completo:', { rollbackError1, rollbackError2 });
+        } else {
+          console.log('✅ Rollback completo exitoso');
+        }
+        
+        return res.status(400).json({ success: false, error: totalesError.message });
+      }
+      
+      console.log('✅ Consulta finalizada exitosamente');
       res.json({ 
         success: true, 
         data: {
