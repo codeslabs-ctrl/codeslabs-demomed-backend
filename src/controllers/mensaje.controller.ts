@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { supabase } from '../config/database.js';
+import { EmailService } from '../services/email.service.js';
 
 export class MensajeController {
   // Obtener todos los mensajes
@@ -329,29 +330,167 @@ export class MensajeController {
     try {
       const { id } = req.params;
 
-      // Actualizar estado del mensaje
+      // 1. Obtener el mensaje completo
+      const { data: mensaje, error: mensajeError } = await supabase
+        .from('mensajes_difusion')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (mensajeError || !mensaje) {
+        res.status(404).json({
+          success: false,
+          error: { message: 'Mensaje no encontrado' }
+        });
+        return;
+      }
+
+      // 2. Obtener todos los destinatarios con sus emails
+      const { data: destinatarios, error: destinatariosError } = await supabase
+        .from('mensajes_destinatarios')
+        .select(`
+          id,
+          paciente_id,
+          email,
+          estado_envio,
+          pacientes!paciente_id (
+            nombres,
+            apellidos,
+            email
+          )
+        `)
+        .eq('mensaje_id', id);
+
+      if (destinatariosError || !destinatarios || destinatarios.length === 0) {
+        res.status(400).json({
+          success: false,
+          error: { message: 'No hay destinatarios para este mensaje' }
+        });
+        return;
+      }
+
+      // 3. Inicializar EmailService
+      const emailService = new EmailService();
+      let enviados = 0;
+      let fallidos = 0;
+
+      // 4. Enviar email a cada destinatario
+      for (const destinatario of destinatarios) {
+        const paciente = Array.isArray(destinatario.pacientes) 
+          ? destinatario.pacientes[0] 
+          : destinatario.pacientes;
+        const email = destinatario.email || paciente?.email;
+        
+        if (!email) {
+          console.warn(`⚠️ Destinatario ${destinatario.paciente_id} no tiene email`);
+          // Actualizar como fallido
+          await supabase
+            .from('mensajes_destinatarios')
+            .update({
+              estado_envio: 'fallido',
+              error_envio: 'Email no disponible'
+            })
+            .eq('id', destinatario.id);
+          fallidos++;
+          continue;
+        }
+
+        // Preparar plantilla del mensaje de difusión
+        const emailTemplate = {
+          subject: mensaje.titulo,
+          html: `
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <meta charset="utf-8">
+              <style>
+                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                .header { background: linear-gradient(135deg, #E91E63, #C2185B); color: white; padding: 30px 20px; text-align: center; }
+                .content { padding: 20px; background: #f9f9f9; }
+                .message-body { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; }
+                .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+              </style>
+            </head>
+            <body>
+              <div class="container">
+                <div class="header">
+                  <h1>📧 FemiMed</h1>
+                  <h2>${mensaje.titulo}</h2>
+                </div>
+                <div class="content">
+                  <p>Estimado/a <strong>${paciente?.nombres || ''} ${paciente?.apellidos || ''}</strong>,</p>
+                  <div class="message-body">
+                    ${mensaje.contenido}
+                  </div>
+                  <p>Saludos cordiales,<br>Equipo FemiMed</p>
+                </div>
+                <div class="footer">
+                  <p>Sistema de Gestión Médica FemiMed</p>
+                  <p>Este es un mensaje automático, por favor no responder a este email.</p>
+                </div>
+              </div>
+            </body>
+            </html>
+          `,
+          text: mensaje.contenido.replace(/<[^>]*>/g, '') // Versión texto plano
+        };
+
+        // Enviar email
+        const resultadoEnvio = await emailService.sendTemplateEmail(
+          email,
+          emailTemplate,
+          {
+            pacienteNombre: paciente?.nombres || '',
+            pacienteApellidos: paciente?.apellidos || ''
+          }
+        );
+
+        // Actualizar estado del destinatario
+        await supabase
+          .from('mensajes_destinatarios')
+          .update({
+            estado_envio: resultadoEnvio ? 'enviado' : 'fallido',
+            fecha_envio: resultadoEnvio ? new Date().toISOString() : null,
+            error_envio: resultadoEnvio ? null : 'Error al enviar email'
+          })
+          .eq('id', destinatario.id);
+
+        if (resultadoEnvio) {
+          enviados++;
+          console.log(`✅ Email enviado exitosamente a ${email}`);
+        } else {
+          fallidos++;
+          console.error(`❌ Error enviando email a ${email}`);
+        }
+      }
+
+      // 5. Actualizar estado del mensaje
       const { error: updateError } = await supabase
         .from('mensajes_difusion')
         .update({
           estado: 'enviado',
-          fecha_envio: new Date().toISOString()
+          fecha_envio: new Date().toISOString(),
+          total_enviados: enviados,
+          total_fallidos: fallidos
         })
         .eq('id', id);
 
       if (updateError) {
         console.error('Error updating mensaje status:', updateError);
-        res.status(500).json({
-          success: false,
-          error: { message: 'Error al actualizar el estado del mensaje' }
-        });
-        return;
       }
 
-      // TODO: Aquí se integraría con n8n para el envío real
-      // Por ahora solo marcamos como enviado
-
       res.json({
-        success: true
+        success: true,
+        data: {
+          mensaje_id: id,
+          total_destinatarios: destinatarios.length,
+          enviados,
+          fallidos,
+          mensaje: enviados > 0 
+            ? `Mensaje enviado a ${enviados} destinatario${enviados !== 1 ? 's' : ''}`
+            : 'Error: No se pudo enviar el mensaje a ningún destinatario'
+        }
       });
 
     } catch (error) {
