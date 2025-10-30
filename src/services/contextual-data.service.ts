@@ -168,7 +168,7 @@ export class ContextualDataService {
       .select('*')
       .eq('paciente_id', pacienteId)
       .eq('medico_id', medicoId)
-      .eq('clinica_alias', clinicaAlias)
+      .or(`clinica_alias.eq.${clinicaAlias},clinica_alias.is.null`)
       .order('fecha_consulta', { ascending: false })
       .limit(1)
       .single();
@@ -208,16 +208,26 @@ export class ContextualDataService {
   ): Promise<UltimoInforme[]> {
     console.log(`🔍 Buscando historial de consultas para paciente ${pacienteId}, médico ${medicoId}, clínica ${clinicaAlias}`);
     
+    // Primero verificar si hay datos sin filtro de clínica
+    const { data: allData, error: allError } = await supabase
+      .from('historico_pacientes')
+      .select('*')
+      .eq('paciente_id', pacienteId)
+      .eq('medico_id', medicoId);
+    
+    console.log(`📊 Datos sin filtro de clínica:`, { data: allData, error: allError });
+    
+    // Luego con el filtro de clínica (manejar caso cuando clinica_alias es null)
     const { data, error } = await supabase
       .from('historico_pacientes')
       .select('*')
       .eq('paciente_id', pacienteId)
       .eq('medico_id', medicoId)
-      .eq('clinica_alias', clinicaAlias)
+      .or(`clinica_alias.eq.${clinicaAlias},clinica_alias.is.null`)
       .order('fecha_consulta', { ascending: false })
       .limit(5);
 
-    console.log(`📊 Resultado del historial:`, { data, error });
+    console.log(`📊 Resultado del historial con filtro de clínica (incluyendo null):`, { data, error });
 
     if (error) {
       console.error(`❌ Error obteniendo historial de consultas:`, error);

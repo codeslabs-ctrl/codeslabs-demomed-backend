@@ -264,7 +264,8 @@ export class HistoricoService {
         .from('historico_pacientes')
         .update({
           ...filteredData,
-          fecha_actualizacion: new Date().toISOString()
+          fecha_actualizacion: new Date().toISOString(),
+          clinica_alias: process.env['CLINICA_ALIAS'] || 'femimed'
         })
         .eq('id', historicoId)
         .select()
@@ -324,7 +325,8 @@ export class HistoricoService {
         diagnostico: historicoData.diagnostico || null,
         conclusiones: historicoData.conclusiones || null,
         plan: historicoData.plan || null,
-        fecha_consulta: historicoData.fecha_consulta || new Date().toISOString().split('T')[0]
+        fecha_consulta: historicoData.fecha_consulta || new Date().toISOString().split('T')[0],
+        clinica_alias: process.env['CLINICA_ALIAS'] || 'femimed'
       };
       
       console.log('🔍 Datos a insertar en la base de datos:', insertData);

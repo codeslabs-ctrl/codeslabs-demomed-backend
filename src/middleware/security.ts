@@ -124,10 +124,16 @@ export const validateLogin = validateInput(Joi.object({
 
 // Validación específica para informes médicos
 export const validateInforme = validateInput(Joi.object({
+  titulo: Joi.string().min(5).max(200).required(),
+  tipo_informe: Joi.string().required(),
+  contenido: Joi.string().min(10).required(),
   paciente_id: Joi.number().required(),
   medico_id: Joi.number().required(),
-  contenido: Joi.string().min(10).required(),
-  estado: Joi.string().valid('borrador', 'firmado', 'enviado').default('borrador')
+  template_id: Joi.number().optional(),
+  estado: Joi.string().valid('borrador', 'finalizado', 'firmado', 'enviado').default('borrador'),
+  fecha_emision: Joi.string().allow('').optional(),
+  observaciones: Joi.string().allow('').optional(),
+  creado_por: Joi.number().required()
 }));
 
 // Validación específica para pacientes (solo datos básicos)
