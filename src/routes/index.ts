@@ -20,6 +20,7 @@ import pdfRoutes from './pdf.js';
 import serviciosRoutes from './servicios.js';
 import finanzasRoutes from './finanzas.js';
 import firmasRoutes from './firmas.js';
+import importacionRoutes from './importacion.js';
 import { ApiResponse } from '../types/index.js';
 
 const router = express.Router();
@@ -100,5 +101,6 @@ router.use('/pdf', pdfRoutes);
 router.use('/servicios', serviciosRoutes);
 router.use('/finanzas', finanzasRoutes);
 router.use('/firmas', firmasRoutes);
+router.use('/importacion', importacionRoutes);
 
 export default router;

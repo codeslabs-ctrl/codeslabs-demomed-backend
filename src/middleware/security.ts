@@ -144,7 +144,8 @@ export const validatePaciente = validateInput(Joi.object({
   email: Joi.string().email().required(),
   telefono: Joi.string().min(8).required(),
   edad: Joi.number().integer().min(0).max(150).required(),
-  sexo: Joi.string().valid('Masculino', 'Femenino', 'Otro').required()
+  sexo: Joi.string().valid('Masculino', 'Femenino', 'Otro').required(),
+  activo: Joi.boolean().optional()
 }));
 
 // Validación para actualización de pacientes (incluye campos médicos opcionales)

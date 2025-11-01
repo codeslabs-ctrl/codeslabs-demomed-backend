@@ -83,7 +83,12 @@ export class PatientController {
 
   async getPatientByEmail(req: AuthenticatedRequest, res: Response<ApiResponse>): Promise<void> {
     try {
-      const { email } = req.params;
+      let { email } = req.params;
+      
+      // Decodificar el email en caso de que esté codificado (especialmente el símbolo @)
+      if (email) {
+        email = decodeURIComponent(email);
+      }
       
       if (!email) {
         const response: ApiResponse = {

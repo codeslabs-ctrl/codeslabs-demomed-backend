@@ -106,10 +106,10 @@ export class MedicoController {
     }
   }
 
-  async createMedico(req: Request<{}, ApiResponse, { nombres: string; apellidos: string; cedula?: string; email: string; telefono: string; especialidad_id: number }>, res: Response<ApiResponse>): Promise<void> {
+  async createMedico(req: Request<{}, ApiResponse, { nombres: string; apellidos: string; cedula?: string; email: string; telefono: string; especialidad_id: number; mpps?: string; cm?: string }>, res: Response<ApiResponse>): Promise<void> {
     try {
       console.log('📥 Datos recibidos en createMedico:', req.body);
-      const { nombres, apellidos, cedula, email, telefono, especialidad_id } = req.body;
+      const { nombres, apellidos, cedula, email, telefono, especialidad_id, mpps, cm } = req.body;
 
       console.log('🔍 Validando campos:');
       console.log('  - nombres:', nombres, typeof nombres);
@@ -166,7 +166,7 @@ export class MedicoController {
       // Crear el médico (sin clinica_alias en la base de datos)
       const { data: newMedico, error: createError } = await supabase
         .from('medicos')
-        .insert({ nombres, apellidos, cedula, email, telefono, especialidad_id })
+        .insert({ nombres, apellidos, cedula, email, telefono, especialidad_id, mpps, cm })
         .select()
         .single();
 
@@ -277,7 +277,7 @@ export class MedicoController {
     }
   }
 
-  async updateMedico(req: Request<{ id: string }, ApiResponse, { nombres?: string; apellidos?: string; cedula?: string; email?: string; telefono?: string; especialidad_id?: number }>, res: Response<ApiResponse>): Promise<void> {
+  async updateMedico(req: Request<{ id: string }, ApiResponse, { nombres?: string; apellidos?: string; cedula?: string; email?: string; telefono?: string; especialidad_id?: number; mpps?: string; cm?: string }>, res: Response<ApiResponse>): Promise<void> {
     try {
       const { id } = req.params;
       const updateData = req.body;
@@ -573,32 +573,58 @@ export class MedicoController {
         return;
       }
 
-      const { data, error } = await supabase
-        .from('medicos')
-        .select(`
-          *,
-          especialidades!medicos_especialidad_id_fkey (
-            nombre
-          )
-        `)
-        .or(`nombres.ilike.%${q}%,apellidos.ilike.%${q}%,email.ilike.%${q}%`)
-        .order('nombres', { ascending: true });
+      // Escapar caracteres especiales para la búsqueda
+      const searchTerm = q.trim();
 
-      if (error) {
-        throw new Error(`Database error: ${error.message}`);
+      // Construir query base
+      let query = supabase
+        .from('medicos')
+        .select('*');
+
+      // Si el término parece un email, buscar solo por email
+      if (searchTerm.includes('@')) {
+        query = query.ilike('email', `%${searchTerm}%`);
+      } else {
+        // Para otros términos, buscar en nombres, apellidos y email
+        query = query.or(`nombres.ilike.%${searchTerm}%,apellidos.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`);
       }
 
-      const medicos = data?.map(medico => ({
+      // Ejecutar la búsqueda
+      const { data: medicos, error: medicosError } = await query
+        .order('nombres', { ascending: true });
+
+      if (medicosError) {
+        throw new Error(`Database error: ${medicosError.message}`);
+      }
+
+      // Obtener especialidades
+      const { data: especialidades, error: especialidadesError } = await supabase
+        .from('especialidades')
+        .select('id, nombre_especialidad');
+
+      if (especialidadesError) {
+        throw new Error(`Database error: ${especialidadesError.message}`);
+      }
+
+      // Crear un mapa de especialidades para búsqueda rápida
+      const especialidadesMap = new Map();
+      especialidades?.forEach(esp => {
+        especialidadesMap.set(esp.id, esp.nombre_especialidad);
+      });
+
+      // Combinar médicos con nombres de especialidades
+      const medicosWithEspecialidad = medicos?.map(medico => ({
         ...medico,
-        especialidad_nombre: (medico.especialidades as any)?.nombre_especialidad
+        especialidad_nombre: especialidadesMap.get(medico.especialidad_id) || 'Especialidad no encontrada'
       })) || [];
 
       const response: ApiResponse = {
         success: true,
-        data: medicos
+        data: medicosWithEspecialidad
       };
       res.json(response);
     } catch (error) {
+      console.error('❌ Error en searchMedicos:', error);
       const response: ApiResponse = {
         success: false,
         error: { message: (error as Error).message }
