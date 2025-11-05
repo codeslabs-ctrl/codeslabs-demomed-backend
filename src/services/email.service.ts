@@ -980,10 +980,6 @@ export class EmailService {
                 </div>
               </div>
 
-              <div style="text-align: center; margin: 2rem 0;">
-                <a href="#" class="btn">Ver Detalles en FemiMed</a>
-              </div>
-
               <p><strong>Próximos pasos:</strong></p>
               <ul>
                 <li>Revise la información del paciente en el sistema</li>
@@ -1079,10 +1075,6 @@ export class EmailService {
                   <li>Si tiene alguna pregunta, no dude en contactarnos</li>
                   <li>Para nuevas consultas, puede acceder al sistema FemiMed</li>
                 </ul>
-              </div>
-              
-              <div style="text-align: center; margin: 2rem 0;">
-                <a href="#" class="btn">Acceder a FemiMed</a>
               </div>
             </div>
             
@@ -1190,10 +1182,6 @@ export class EmailService {
                   <li>Actualizar su agenda médica</li>
                   <li>Contactar al paciente si es necesario</li>
                 </ul>
-              </div>
-              
-              <div style="text-align: center; margin: 2rem 0;">
-                <a href="#" class="btn">Ver Agenda en FemiMed</a>
               </div>
             </div>
             
@@ -1313,10 +1301,6 @@ export class EmailService {
                   <li>Traiga su documento de identidad</li>
                   <li>Si no puede asistir a la nueva fecha, contáctenos inmediatamente</li>
                 </ul>
-              </div>
-              
-              <div style="text-align: center; margin: 2rem 0;">
-                <a href="#" class="btn">Ver Detalles en FemiMed</a>
               </div>
             </div>
             
@@ -1440,10 +1424,6 @@ export class EmailService {
                   <li>Contactar al paciente si es necesario</li>
                 </ul>
               </div>
-              
-              <div style="text-align: center; margin: 2rem 0;">
-                <a href="#" class="btn">Ver Agenda en FemiMed</a>
-              </div>
             </div>
             
             <div class="footer">
@@ -1562,10 +1542,6 @@ export class EmailService {
                   <li>Si tiene dudas sobre el diagnóstico, contacte al médico</li>
                   <li>Para seguimientos o nuevas consultas, acceda al sistema FemiMed</li>
                 </ul>
-              </div>
-              
-              <div style="text-align: center; margin: 2rem 0;">
-                <a href="#" class="btn">Acceder a FemiMed</a>
               </div>
             </div>
             
@@ -1689,10 +1665,6 @@ export class EmailService {
                   <li>Considere programar seguimientos si es necesario</li>
                   <li>Revise su agenda para próximas consultas</li>
                 </ul>
-              </div>
-              
-              <div style="text-align: center; margin: 2rem 0;">
-                <a href="#" class="btn">Ver Agenda en FemiMed</a>
               </div>
             </div>
             

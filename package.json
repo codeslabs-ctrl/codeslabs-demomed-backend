@@ -6,8 +6,9 @@
   "scripts": {
     "start": "node dist/server.js",
     "dev": "tsx watch src/server.ts",
-    "build": "tsc",
+    "build": "tsc && npm run copy:assets",
     "build:watch": "tsc --watch",
+    "copy:assets": "node scripts/copy-assets.js",
     "test": "jest",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix"

@@ -883,19 +883,22 @@ export class ConsultaController {
           tipo_consulta,
           fecha_pautada,
           hora_pautada,
-          pacientes!inner(nombre, apellidos, email),
-          medicos!inner(nombre, apellidos, email)
+          pacientes!inner(nombres, apellidos, email),
+          medicos!inner(nombres, apellidos, email)
         `)
         .eq('id', consultaId)
         .single();
 
-      if (!errorCompleta && consultaCompleta && consultaCompleta.pacientes?.length > 0 && consultaCompleta.medicos?.length > 0) {
+      if (!errorCompleta && consultaCompleta && consultaCompleta.pacientes && consultaCompleta.medicos) {
         console.log('📧 Enviando emails de finalización...');
         
         const emailService = new EmailService();
+        const pacienteData = consultaCompleta.pacientes as any;
+        const medicoData = consultaCompleta.medicos as any;
+        
         const emailData = {
-          pacienteNombre: `${consultaCompleta.pacientes[0]?.nombre || ''} ${consultaCompleta.pacientes[0]?.apellidos || ''}`,
-          medicoNombre: `${consultaCompleta.medicos[0]?.nombre || ''} ${consultaCompleta.medicos[0]?.apellidos || ''}`,
+          pacienteNombre: `${pacienteData?.nombres || ''} ${pacienteData?.apellidos || ''}`,
+          medicoNombre: `${medicoData?.nombres || ''} ${medicoData?.apellidos || ''}`,
           fecha: consultaCompleta.fecha_pautada,
           hora: consultaCompleta.hora_pautada,
           motivo: consultaCompleta.motivo_consulta,
@@ -906,8 +909,8 @@ export class ConsultaController {
 
         try {
           const emailResults = await emailService.sendConsultaCompletion(
-            consultaCompleta.pacientes[0]?.email || '',
-            consultaCompleta.medicos[0]?.email || '',
+            pacienteData?.email || '',
+            medicoData?.email || '',
             emailData
           );
           
@@ -1050,19 +1053,27 @@ export class ConsultaController {
           tipo_consulta,
           fecha_pautada,
           hora_pautada,
-          pacientes!inner(nombre, apellidos, email),
-          medicos!inner(nombre, apellidos, email)
+          pacientes!inner(nombres, apellidos, email),
+          medicos!inner(nombres, apellidos, email)
         `)
         .eq('id', consultaId)
         .single();
 
-      if (!errorCompleta && consultaCompleta && consultaCompleta.pacientes?.length > 0 && consultaCompleta.medicos?.length > 0) {
+      console.log('🔍 Debug reagendamiento - errorCompleta:', errorCompleta);
+      console.log('🔍 Debug reagendamiento - consultaCompleta:', consultaCompleta);
+      console.log('🔍 Debug reagendamiento - pacientes:', consultaCompleta?.pacientes);
+      console.log('🔍 Debug reagendamiento - medicos:', consultaCompleta?.medicos);
+
+      if (!errorCompleta && consultaCompleta && consultaCompleta.pacientes && consultaCompleta.medicos) {
         console.log('📧 Enviando emails de reagendamiento...');
         
         const emailService = new EmailService();
+        const pacienteData = consultaCompleta.pacientes as any;
+        const medicoData = consultaCompleta.medicos as any;
+        
         const emailData = {
-          pacienteNombre: `${consultaCompleta.pacientes[0]?.nombre || ''} ${consultaCompleta.pacientes[0]?.apellidos || ''}`,
-          medicoNombre: `${consultaCompleta.medicos[0]?.nombre || ''} ${consultaCompleta.medicos[0]?.apellidos || ''}`,
+          pacienteNombre: `${pacienteData?.nombres || ''} ${pacienteData?.apellidos || ''}`,
+          medicoNombre: `${medicoData?.nombres || ''} ${medicoData?.apellidos || ''}`,
           fechaAnterior: consultaExistente.fecha_pautada,
           horaAnterior: consultaExistente.hora_pautada,
           fechaNueva: consultaCompleta.fecha_pautada,
@@ -1072,9 +1083,15 @@ export class ConsultaController {
         };
 
         try {
+          console.log('📧 Datos del email de reagendamiento:', {
+            pacienteEmail: pacienteData?.email,
+            medicoEmail: medicoData?.email,
+            emailData: emailData
+          });
+
           const emailResults = await emailService.sendConsultaReschedule(
-            consultaCompleta.pacientes[0]?.email || '',
-            consultaCompleta.medicos[0]?.email || '',
+            pacienteData?.email || '',
+            medicoData?.email || '',
             emailData
           );
           
@@ -1083,6 +1100,12 @@ export class ConsultaController {
           console.error('❌ Error enviando emails de reagendamiento:', emailError);
           // No fallar la operación por error de email
         }
+      } else {
+        console.log('❌ No se enviaron emails de reagendamiento - Condiciones no cumplidas');
+        console.log('❌ errorCompleta:', errorCompleta);
+        console.log('❌ consultaCompleta existe:', !!consultaCompleta);
+        console.log('❌ pacientes existe:', !!consultaCompleta?.pacientes);
+        console.log('❌ medicos existe:', !!consultaCompleta?.medicos);
       }
       
       res.json({

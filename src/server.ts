@@ -29,6 +29,9 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Serve static files from uploads directory
 app.use('/uploads', express.static('uploads'));
 
+// Serve static files from assets directory
+app.use('/assets', express.static('assets'));
+
 // Compression middleware
 app.use(compression());
 
