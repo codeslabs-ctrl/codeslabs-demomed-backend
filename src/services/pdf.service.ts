@@ -434,12 +434,31 @@ export class PDFService {
    */
   private async obtenerLogoBase64(logoPath: string): Promise<string> {
     try {
-      const logoFile = path.resolve(logoPath);
+      // Si la ruta es relativa (empieza con ./), resolverla desde el directorio del proyecto
+      // El código compilado está en dist/, así que subimos 2 niveles para llegar a la raíz
+      let logoFile: string;
+      if (logoPath.startsWith('./') || logoPath.startsWith('../')) {
+        // Resolver desde el directorio del proyecto (raíz del backend)
+        const projectRoot = path.join(__dirname, '..', '..');
+        logoFile = path.resolve(projectRoot, logoPath);
+      } else if (path.isAbsolute(logoPath)) {
+        // Si es absoluta, usarla tal cual
+        logoFile = logoPath;
+      } else {
+        // Si es relativa sin ./ o ../, también resolverla desde el proyecto
+        const projectRoot = path.join(__dirname, '..', '..');
+        logoFile = path.resolve(projectRoot, logoPath);
+      }
+      
+      console.log('🔍 Buscando logo en:', logoFile);
+      
       if (fs.existsSync(logoFile)) {
         const logoBuffer = fs.readFileSync(logoFile);
         const base64 = logoBuffer.toString('base64');
         const mimeType = logoPath.endsWith('.svg') ? 'image/svg+xml' : 'image/png';
         return `data:${mimeType};base64,${base64}`;
+      } else {
+        console.error('❌ Logo no encontrado en:', logoFile);
       }
     } catch (error) {
       console.error('❌ Error leyendo logo:', error);
