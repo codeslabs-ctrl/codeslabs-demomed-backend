@@ -1,8 +1,15 @@
 import dotenv from 'dotenv';
 import { Config } from '../types/index.js';
 
+// Determine which config file to use based on NODE_ENV
+const nodeEnv = process.env['NODE_ENV'] || 'development';
+const configFile = nodeEnv === 'production' 
+  ? './config.env' 
+  : './config.dev.env';
+
 // Load environment variables
-dotenv.config({ path: './config.env' });
+dotenv.config({ path: configFile });
+console.log(`📋 Loading config from: ${configFile} (NODE_ENV: ${nodeEnv})`);
 
 export const config: Config = {
   // Server configuration
