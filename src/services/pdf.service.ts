@@ -479,7 +479,7 @@ export class PDFService {
         descripcion: 'Centro Médico Especializado',
         especialidad: 'Ginecología y Obstetricia',
         color: '#E91E63',
-        logoPath: process.env['LOGO_PATH'] || path.join(process.cwd(), '../../frontend/femimed-frontend/src/assets/logos/femimed/logo.svg'),
+        logoPath: process.env['LOGO_PATH'] || './assets/logos/femimed/logo.svg',
         logo: '' // Se llenará con base64
       },
       'clinica2': {
