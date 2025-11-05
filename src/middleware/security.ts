@@ -146,6 +146,7 @@ export const validateInformeUpdate = validateInput(Joi.object({
   template_id: Joi.number().optional(),
   estado: Joi.string().valid('borrador', 'finalizado', 'firmado', 'enviado').optional(),
   fecha_emision: Joi.string().allow('').optional(),
+  fecha_envio: Joi.string().isoDate().optional(),
   observaciones: Joi.string().allow('').optional(),
   creado_por: Joi.number().optional()
 }));

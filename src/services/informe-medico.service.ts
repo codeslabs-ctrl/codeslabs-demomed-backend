@@ -13,6 +13,7 @@ export interface InformeMedico {
   fecha_emision: Date;
   fecha_creacion: Date;
   fecha_actualizacion: Date;
+  fecha_envio?: Date | string;
   clinica_alias: string;
   observaciones?: string;
   numero_secuencial?: number;

@@ -577,7 +577,11 @@ export class InformeMedicoController {
       // Registrar envío (si existe bitácora) y actualizar estado del informe a 'enviado'
       try {
         console.log('📧 [enviarInforme] Actualizando estado del informe a enviado');
-        await informeMedicoService.actualizarInforme(informeId, { estado: 'enviado' });
+        const fechaEnvio = new Date().toISOString();
+        await informeMedicoService.actualizarInforme(informeId, { 
+          estado: 'enviado',
+          fecha_envio: fechaEnvio
+        });
       } catch (e) {
         console.warn('No se pudo actualizar estado del informe a enviado:', e);
       }
