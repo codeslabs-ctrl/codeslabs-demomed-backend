@@ -136,6 +136,20 @@ export const validateInforme = validateInput(Joi.object({
   creado_por: Joi.number().required()
 }));
 
+// Validación para actualización de informes (campos opcionales)
+export const validateInformeUpdate = validateInput(Joi.object({
+  titulo: Joi.string().min(5).max(200).optional(),
+  tipo_informe: Joi.string().optional(),
+  contenido: Joi.string().min(10).optional(),
+  paciente_id: Joi.number().optional(),
+  medico_id: Joi.number().optional(),
+  template_id: Joi.number().optional(),
+  estado: Joi.string().valid('borrador', 'finalizado', 'firmado', 'enviado').optional(),
+  fecha_emision: Joi.string().allow('').optional(),
+  observaciones: Joi.string().allow('').optional(),
+  creado_por: Joi.number().optional()
+}));
+
 // Validación específica para pacientes (solo datos básicos)
 export const validatePaciente = validateInput(Joi.object({
   nombres: Joi.string().min(2).required(),

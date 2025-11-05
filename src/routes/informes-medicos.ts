@@ -13,6 +13,7 @@ import {
   medicoSecretariaMiddleware,
   adminSecurityMiddleware,
   validateInforme,
+  validateInformeUpdate,
   informeLimiter,
   emailLimiter
 } from '../middleware/security';
@@ -38,7 +39,7 @@ router.get('/', medicoSecretariaMiddleware, informeMedicoController.obtenerInfor
 router.get('/:id', medicoSecretariaMiddleware, verificarFirmaDigital, informeMedicoController.obtenerInformePorId);
 
 // Actualizar informe médico (solo si no está firmado) (médicos y admins)
-router.put('/:id', medicoSecretariaMiddleware, verificarFirmaDigital, noRequerirFirmaDigital, validateInforme, informeMedicoController.actualizarInforme);
+router.put('/:id', medicoSecretariaMiddleware, verificarFirmaDigital, noRequerirFirmaDigital, validateInformeUpdate, informeMedicoController.actualizarInforme);
 
 // Eliminar informe médico (solo admins)
 router.delete('/:id', adminSecurityMiddleware, informeMedicoController.eliminarInforme);
