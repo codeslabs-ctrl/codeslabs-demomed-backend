@@ -33,8 +33,20 @@ export const generalLimiter = rateLimit({
 // Rate limiting para autenticación
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 5,
-  message: 'Demasiados intentos de login'
+  max: 10, // Aumentado de 5 a 10 intentos
+  message: 'Demasiados intentos de login. Debes esperar 15 minutos antes de intentar nuevamente.',
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  handler: (_req, res) => {
+    res.status(429).json({
+      success: false,
+      message: 'Demasiados intentos de login. Debes esperar 15 minutos antes de intentar nuevamente.',
+      error: {
+        code: 'RATE_LIMIT_EXCEEDED',
+        retryAfter: Math.ceil(15 * 60) // segundos
+      }
+    });
+  }
 });
 
 // Rate limiting para informes médicos

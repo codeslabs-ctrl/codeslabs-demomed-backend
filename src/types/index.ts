@@ -7,6 +7,7 @@ export interface ApiResponse<T = any> {
   data?: T;
   error?: {
     message: string;
+    code?: string;
     details?: any;
     stack?: string;
   };

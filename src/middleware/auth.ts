@@ -36,11 +36,17 @@ export const authenticateToken = (req: AuthenticatedRequest, res: Response, next
     };
     
     next();
-  } catch (error) {
+  } catch (error: any) {
+    // Determinar si es expiración o token inválido
+    const isExpired = error.name === 'TokenExpiredError';
     const response: ApiResponse = {
       success: false,
-      error: { message: 'Token inválido o expirado' }
+      error: { 
+        message: isExpired ? 'Token expirado' : 'Token inválido',
+        code: isExpired ? 'TOKEN_EXPIRED' : 'TOKEN_INVALID'
+      }
     };
-    res.status(403).json(response);
+    // Usar 401 para token expirado/inválido (no 403)
+    res.status(401).json(response);
   }
 };
