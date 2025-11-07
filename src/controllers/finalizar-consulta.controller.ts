@@ -6,10 +6,11 @@ export class FinalizarConsultaController {
   async finalizarConsulta(req: any, res: any) {
     try {
       const { id } = req.params;
-      const { servicios, observaciones } = req.body;
+      const { servicios, diagnostico_preliminar, observaciones } = req.body;
       
       console.log('🔍 Finalizando consulta ID:', id);
       console.log('🔍 Servicios recibidos:', servicios);
+      console.log('🔍 Diagnóstico preliminar:', diagnostico_preliminar);
       console.log('🔍 Observaciones:', observaciones);
       
       // Validaciones
@@ -26,16 +27,41 @@ export class FinalizarConsultaController {
       // 1. Verificar que la consulta existe y está en estado correcto
       const { data: consulta, error: consultaError } = await supabase
         .from('consultas_pacientes')
-        .select('*')
+        .select(`
+          *,
+          medicos!fk_consultas_medico(
+            id,
+            especialidad_id
+          )
+        `)
         .eq('id', id)
         .single();
       
       if (consultaError || !consulta) {
+        console.error('❌ Error obteniendo consulta:', consultaError);
         return res.status(404).json({ success: false, error: 'Consulta no encontrada' });
       }
       
-      if (consulta.estado === 'completada') {
-        return res.status(400).json({ success: false, error: 'La consulta ya está completada' });
+      if (consulta.estado_consulta === 'finalizada' || consulta.estado_consulta === 'completada') {
+        return res.status(400).json({ success: false, error: 'La consulta ya está finalizada' });
+      }
+      
+      // Obtener especialidad_id: puede estar directamente en la consulta o en medicos
+      let especialidadId: number | undefined;
+      
+      if (consulta.especialidad_id) {
+        especialidadId = consulta.especialidad_id;
+        console.log('✅ Especialidad obtenida directamente de consulta:', especialidadId);
+      } else if (consulta.medicos && typeof consulta.medicos === 'object') {
+        // Manejar si medicos es un objeto o array
+        const medico = Array.isArray(consulta.medicos) ? consulta.medicos[0] : consulta.medicos;
+        especialidadId = (medico as any)?.especialidad_id;
+        console.log('✅ Especialidad obtenida de médico:', especialidadId);
+      }
+      
+      if (!especialidadId) {
+        console.error('❌ No se pudo determinar especialidad_id. Consulta:', JSON.stringify(consulta, null, 2));
+        return res.status(400).json({ success: false, error: 'No se pudo determinar la especialidad de la consulta' });
       }
       
       // 2. Obtener tipo de cambio actual
@@ -48,15 +74,72 @@ export class FinalizarConsultaController {
       
       const tipoCambioActual = tipoCambio?.usd_to_ves || 36.50;
       
-      // 3. Validar servicios seleccionados
-      const servicioIds = servicios.map((s: any) => s.servicio_id);
+      // 3. Procesar servicios: manejar servicio predeterminado (ID -1)
+      const serviciosProcesados: any[] = [];
+      
+      for (const servicio of servicios) {
+        let servicioIdReal = servicio.servicio_id;
+        
+        // Si el servicio_id es -1, es un servicio predeterminado "Consulta"
+        if (servicio.servicio_id === -1 || servicio.servicio_id === 0) {
+          console.log('📝 Detectado servicio predeterminado (ID: -1), buscando o creando servicio "Consulta"');
+          
+          // Buscar si ya existe un servicio "Consulta" para esta especialidad
+          const { data: servicioExistente } = await supabase
+            .from('servicios')
+            .select('id, nombre_servicio, monto_base, moneda')
+            .eq('nombre_servicio', 'Consulta')
+            .eq('especialidad_id', especialidadId)
+            .eq('activo', true)
+            .single();
+          
+          if (servicioExistente) {
+            // Usar el servicio existente
+            console.log('✅ Servicio "Consulta" encontrado:', servicioExistente.id);
+            servicioIdReal = servicioExistente.id;
+          } else {
+            // Crear el servicio "Consulta" si no existe
+            console.log('📝 Creando nuevo servicio "Consulta" para especialidad:', especialidadId);
+            const { data: nuevoServicio, error: crearError } = await supabase
+              .from('servicios')
+              .insert({
+                nombre_servicio: 'Consulta',
+                especialidad_id: especialidadId,
+                monto_base: 80,
+                moneda: servicio.moneda || 'USD',
+                activo: true
+              })
+              .select('id, nombre_servicio, monto_base, moneda')
+              .single();
+            
+            if (crearError || !nuevoServicio) {
+              console.error('❌ Error creando servicio "Consulta":', crearError);
+              return res.status(500).json({ 
+                success: false, 
+                error: 'Error al crear servicio predeterminado: ' + (crearError?.message || 'Error desconocido')
+              });
+            }
+            
+            console.log('✅ Servicio "Consulta" creado exitosamente:', nuevoServicio.id);
+            servicioIdReal = nuevoServicio.id;
+          }
+        }
+        
+        serviciosProcesados.push({
+          ...servicio,
+          servicio_id: servicioIdReal
+        });
+      }
+      
+      // Validar que todos los servicios procesados existen
+      const servicioIdsReales = serviciosProcesados.map((s: any) => s.servicio_id);
       const { data: serviciosValidos, error: serviciosError } = await supabase
         .from('servicios')
         .select('id, nombre_servicio, monto_base, moneda')
-        .in('id', servicioIds)
+        .in('id', servicioIdsReales)
         .eq('activo', true);
       
-      if (serviciosError || !serviciosValidos || serviciosValidos.length !== servicioIds.length) {
+      if (serviciosError || !serviciosValidos || serviciosValidos.length !== servicioIdsReales.length) {
         return res.status(400).json({ 
           success: false, 
           error: 'Uno o más servicios seleccionados no son válidos' 
@@ -64,7 +147,7 @@ export class FinalizarConsultaController {
       }
       
       // 4. Validar montos y monedas
-      for (const servicio of servicios) {
+      for (const servicio of serviciosProcesados) {
         if (!servicio.monto_pagado || servicio.monto_pagado <= 0) {
           return res.status(400).json({ 
             success: false, 
@@ -105,7 +188,7 @@ export class FinalizarConsultaController {
       }
       
       // 6. Insertar servicios de la consulta
-      const serviciosData = servicios.map((servicio: any) => ({
+      const serviciosData = serviciosProcesados.map((servicio: any) => ({
         consulta_id: parseInt(id),
         servicio_id: parseInt(servicio.servicio_id),
         monto_pagado: parseFloat(servicio.monto_pagado),
@@ -142,15 +225,26 @@ export class FinalizarConsultaController {
       
       // 7. Actualizar estado de la consulta
       console.log('🔍 Actualizando estado de consulta a "finalizada"...');
+      const updateData: any = {
+        estado_consulta: 'finalizada',
+        fecha_culminacion: new Date().toISOString(),
+        fecha_pago: new Date().toISOString().split('T')[0],
+        metodo_pago: 'Efectivo'
+      };
+      
+      // Agregar diagnóstico preliminar si está presente
+      if (diagnostico_preliminar) {
+        updateData.diagnostico_preliminar = diagnostico_preliminar;
+      }
+      
+      // Agregar observaciones si están presentes
+      if (observaciones) {
+        updateData.observaciones = observaciones;
+      }
+      
       const { error: updateError } = await supabase
         .from('consultas_pacientes')
-        .update({ 
-          estado_consulta: 'finalizada',
-          observaciones: observaciones || null,
-          fecha_culminacion: new Date().toISOString(),  // Usar fecha_culminacion en lugar de fecha_finalizacion
-          fecha_pago: new Date().toISOString().split('T')[0],  // Solo la fecha (YYYY-MM-DD)
-          metodo_pago: 'Efectivo'  // Método por defecto al finalizar
-        })
+        .update(updateData)
         .eq('id', id);
       
       console.log('🔍 Resultado actualización consulta:', { updateError });
@@ -297,7 +391,7 @@ export class FinalizarConsultaController {
             apellidos,
             cedula
           ),
-          medicos!inner(
+          medicos!fk_consultas_medico(
             id,
             nombres,
             apellidos,
