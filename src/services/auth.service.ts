@@ -1,14 +1,17 @@
 import { supabase } from '../config/database.js';
 import { UserRepository, UserData } from '../repositories/user.repository.js';
+import { UsuarioRepository } from '../repositories/usuario.repository.js';
 import { SignUpRequest, SignInRequest, UpdateUserRequest } from '../types/index.js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
 export class AuthService {
   private userRepository: UserRepository;
+  private usuarioRepository: InstanceType<typeof UsuarioRepository>;
 
   constructor() {
     this.userRepository = new UserRepository();
+    this.usuarioRepository = new UsuarioRepository();
   }
 
   async signUp(userData: SignUpRequest): Promise<{ user: any; session: any }> {
@@ -61,36 +64,30 @@ export class AuthService {
 
   async login(username: string, password: string): Promise<{ token: string; user: any }> {
     try {
-      // Buscar usuario por username en la tabla usuarios
-      const { data: userData, error: userError } = await supabase
-        .from('usuarios')
-        .select(`
-          id,
-          username,
-          email,
-          password_hash,
-          rol,
-          medico_id,
-          activo,
-          first_login,
-          password_changed_at
-        `)
-        .eq('username', username)
-        .eq('activo', true)
-        .single();
+      console.log('🔐 AuthService.login - Intentando login para username:', username);
+      
+      // Buscar usuario por username usando el repositorio (funciona con PostgreSQL y Supabase)
+      const userData = await this.usuarioRepository.findByUsername(username);
+      console.log('🔍 Usuario encontrado:', userData ? 'Sí' : 'No');
 
-      if (userError || !userData) {
+      if (!userData) {
+        console.log('❌ Usuario no encontrado o inactivo para username:', username);
         throw new Error('Usuario no encontrado o inactivo');
       }
 
       // Verificar contraseña usando bcrypt
+      console.log('🔐 Verificando contraseña...');
       const isValidPassword = await bcrypt.compare(password, userData.password_hash);
+      console.log('🔐 Contraseña válida:', isValidPassword);
       
       if (!isValidPassword) {
+        console.log('❌ Contraseña incorrecta para username:', username);
         throw new Error('Contraseña incorrecta');
       }
 
       // Generar JWT token
+      const jwtSecret = process.env['JWT_SECRET'] || 'femimed-secret-key';
+      console.log('🔐 Generando JWT token...');
       const token = jwt.sign(
         { 
           userId: userData.id, 
@@ -98,7 +95,7 @@ export class AuthService {
           rol: userData.rol,
           medico_id: userData.medico_id 
         },
-        process.env['JWT_SECRET'] || 'femimed-secret-key',
+        jwtSecret,
         { expiresIn: '24h' }
       );
 
@@ -113,12 +110,16 @@ export class AuthService {
         password_changed_at: userData.password_changed_at
       };
 
+      console.log('✅ Login exitoso para username:', username, 'rol:', userData.rol);
       return {
         token,
         user
       };
     } catch (error) {
-      throw new Error(`Login failed: ${(error as Error).message}`);
+      console.error('❌ Error en AuthService.login:', error);
+      const errorMessage = (error as Error).message;
+      console.error('❌ Mensaje de error:', errorMessage);
+      throw new Error(`Login failed: ${errorMessage}`);
     }
   }
 
@@ -135,14 +136,10 @@ export class AuthService {
 
   async changePassword(userId: number, currentPassword: string, newPassword: string): Promise<{ success: boolean; message: string }> {
     try {
-      // Verificar que el usuario existe y obtener su contraseña actual
-      const { data: userData, error: userError } = await supabase
-        .from('usuarios')
-        .select('password_hash, first_login')
-        .eq('id', userId)
-        .single();
+      // Verificar que el usuario existe y obtener su contraseña actual usando el repositorio
+      const userData = await this.usuarioRepository.findById(userId.toString());
 
-      if (userError || !userData) {
+      if (!userData) {
         throw new Error('Usuario no encontrado');
       }
 
@@ -158,19 +155,12 @@ export class AuthService {
       const saltRounds = 10;
       const newPasswordHash = await bcrypt.hash(newPassword, saltRounds);
 
-      // Actualizar contraseña y marcar que ya no es primer login
-      const { error: updateError } = await supabase
-        .from('usuarios')
-        .update({
-          password_hash: newPasswordHash,
-          first_login: false,
-          password_changed_at: new Date().toISOString()
-        })
-        .eq('id', userId);
-
-      if (updateError) {
-        throw new Error(`Error actualizando contraseña: ${updateError.message}`);
-      }
+      // Actualizar contraseña y marcar que ya no es primer login usando el repositorio
+      await this.usuarioRepository.update(userId.toString(), {
+        password_hash: newPasswordHash,
+        first_login: false,
+        password_changed_at: new Date().toISOString()
+      } as any);
 
       return {
         success: true,

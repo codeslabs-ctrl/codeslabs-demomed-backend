@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
-import { supabase } from '../config/database.js';
+import { supabase, postgresPool } from '../config/database.js';
 import { EmailService } from '../services/email.service.js';
+import { USE_POSTGRES } from '../config/database-config.js';
+import { config } from '../config/environment.js';
 
 export class MensajeController {
   // Obtener todos los mensajes
@@ -9,34 +11,72 @@ export class MensajeController {
       const { page = 1, limit = 10, estado, tipo } = req.query;
       const offset = (Number(page) - 1) * Number(limit);
 
-      let query = supabase
-        .from('mensajes_difusion')
-        .select('*')
-        .order('fecha_creacion', { ascending: false })
-        .range(offset, offset + Number(limit) - 1);
+      let mensajes: any[] = [];
 
-      if (estado) {
-        query = query.eq('estado', estado);
-      }
+      if (USE_POSTGRES) {
+        const client = await postgresPool.connect();
+        try {
+          let sqlQuery = `
+            SELECT *
+            FROM mensajes_difusion
+            WHERE 1=1
+          `;
+          
+          const params: any[] = [];
+          let paramIndex = 1;
 
-      if (tipo) {
-        query = query.eq('tipo_mensaje', tipo);
-      }
+          if (estado) {
+            sqlQuery += ` AND estado = $${paramIndex}`;
+            params.push(estado);
+            paramIndex++;
+          }
 
-      const { data, error } = await query;
+          if (tipo) {
+            sqlQuery += ` AND tipo_mensaje = $${paramIndex}`;
+            params.push(tipo);
+            paramIndex++;
+          }
 
-      if (error) {
-        console.error('Error fetching mensajes:', error);
-        res.status(500).json({
-          success: false,
-          error: { message: 'Error al obtener los mensajes' }
-        });
-        return;
+          sqlQuery += ` ORDER BY fecha_creacion DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+          params.push(Number(limit), offset);
+
+          const result = await client.query(sqlQuery, params);
+          mensajes = result.rows;
+        } finally {
+          client.release();
+        }
+      } else {
+        let query = supabase
+          .from('mensajes_difusion')
+          .select('*')
+          .order('fecha_creacion', { ascending: false })
+          .range(offset, offset + Number(limit) - 1);
+
+        if (estado) {
+          query = query.eq('estado', estado);
+        }
+
+        if (tipo) {
+          query = query.eq('tipo_mensaje', tipo);
+        }
+
+        const { data, error } = await query;
+
+        if (error) {
+          console.error('Error fetching mensajes:', error);
+          res.status(500).json({
+            success: false,
+            error: { message: 'Error al obtener los mensajes' }
+          });
+          return;
+        }
+
+        mensajes = data || [];
       }
 
       res.json({
         success: true,
-        data: data || []
+        data: mensajes
       });
 
     } catch (error) {
@@ -249,54 +289,98 @@ export class MensajeController {
     try {
       const { busqueda, activos } = req.query;
 
-      let query = supabase
-        .from('pacientes')
-        .select(`
-          id,
-          nombres,
-          apellidos,
-          email,
-          telefono,
-          edad,
-          sexo,
-          activo,
-          fecha_creacion,
-          cedula
-        `)
-        .order('nombres', { ascending: true });
+      let pacientes: any[] = [];
 
-      if (busqueda) {
-        query = query.or(`nombres.ilike.%${busqueda}%,apellidos.ilike.%${busqueda}%,email.ilike.%${busqueda}%`);
-      }
+      if (USE_POSTGRES) {
+        const client = await postgresPool.connect();
+        try {
+          let sqlQuery = `
+            SELECT 
+              id,
+              nombres,
+              apellidos,
+              email,
+              telefono,
+              edad,
+              sexo,
+              activo,
+              fecha_creacion,
+              cedula
+            FROM pacientes
+            WHERE 1=1
+          `;
+          
+          const params: any[] = [];
+          let paramIndex = 1;
 
-      // Filtro por médico no disponible - la tabla pacientes no tiene relación directa con médicos
-      // TODO: Implementar filtro por médico cuando se defina la relación
-
-      // Para administradores, mostrar todos los pacientes por defecto
-      // Solo filtrar por activos si se especifica explícitamente
-      if (activos === 'true') {
-        query = query.eq('activo', true);
-      } else if (activos === 'false') {
-        query = query.eq('activo', false);
-      }
-      // Si no se especifica 'activos', mostrar todos (activos e inactivos)
-
-      const { data, error } = await query;
-
-      if (error) {
-        console.error('Error fetching pacientes:', error);
-        res.status(500).json({
-          success: false,
-          error: { 
-            message: 'Error al obtener los pacientes',
-            details: error.message 
+          if (busqueda) {
+            sqlQuery += ` AND (nombres ILIKE $${paramIndex} OR apellidos ILIKE $${paramIndex} OR email ILIKE $${paramIndex})`;
+            params.push(`%${busqueda}%`);
+            paramIndex++;
           }
-        });
-        return;
+
+          // Filtro por activos
+          if (activos === 'true') {
+            sqlQuery += ` AND activo = true`;
+          } else if (activos === 'false') {
+            sqlQuery += ` AND activo = false`;
+          }
+          // Si no se especifica 'activos', mostrar todos (activos e inactivos)
+
+          sqlQuery += ` ORDER BY nombres ASC`;
+
+          const result = await client.query(sqlQuery, params);
+          pacientes = result.rows;
+        } finally {
+          client.release();
+        }
+      } else {
+        let query = supabase
+          .from('pacientes')
+          .select(`
+            id,
+            nombres,
+            apellidos,
+            email,
+            telefono,
+            edad,
+            sexo,
+            activo,
+            fecha_creacion,
+            cedula
+          `)
+          .order('nombres', { ascending: true });
+
+        if (busqueda) {
+          query = query.or(`nombres.ilike.%${busqueda}%,apellidos.ilike.%${busqueda}%,email.ilike.%${busqueda}%`);
+        }
+
+        // Filtro por activos
+        if (activos === 'true') {
+          query = query.eq('activo', true);
+        } else if (activos === 'false') {
+          query = query.eq('activo', false);
+        }
+
+        const { data, error } = await query;
+
+        if (error) {
+          console.error('Error fetching pacientes:', error);
+          res.status(500).json({
+            success: false,
+            error: { 
+              message: 'Error al obtener los pacientes',
+              details: error.message 
+            }
+          });
+          return;
+        }
+
+        pacientes = data || [];
       }
 
       // Transformar datos para el frontend
-      const pacientesTransformados = data?.map(paciente => ({
+      const pacientesTransformados = pacientes?.map((paciente: any) => ({
         id: paciente.id,
         nombres: paciente.nombres,
         apellidos: paciente.apellidos,
@@ -415,7 +499,7 @@ export class MensajeController {
             <body>
               <div class="container">
                 <div class="header">
-                  <h1>📧 FemiMed</h1>
+                  <h1>📧 ${config.sistema.clinicaNombre}</h1>
                   <h2>${mensaje.titulo}</h2>
                 </div>
                 <div class="content">
@@ -423,10 +507,10 @@ export class MensajeController {
                   <div class="message-body">
                     ${mensaje.contenido}
                   </div>
-                  <p>Saludos cordiales,<br>Equipo FemiMed</p>
+                  <p>Saludos cordiales,<br>Equipo ${config.sistema.clinicaNombre}</p>
                 </div>
                 <div class="footer">
-                  <p>Sistema de Gestión Médica FemiMed</p>
+                  <p>${config.sistema.clinicaNombre}</p>
                   <p>Este es un mensaje automático, por favor no responder a este email.</p>
                 </div>
               </div>

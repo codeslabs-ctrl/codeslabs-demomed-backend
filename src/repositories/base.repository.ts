@@ -1,6 +1,8 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from '../config/database.js';
 import { PaginationInfo } from '../types/index.js';
+import { PostgresRepository } from './postgres.repository.js';
+import { config } from '../config/environment.js';
 
 export interface BaseRepository<T = any> {
   findAll(filters?: Record<string, any>, pagination?: { page: number; limit: number }): Promise<{ data: T[]; pagination: PaginationInfo }>;
@@ -18,6 +20,14 @@ export class SupabaseRepository<T = any> implements BaseRepository<T> {
   constructor(tableName: string) {
     this.client = supabase;
     this.tableName = tableName;
+  }
+
+  // Factory method para crear el repositorio apropiado
+  static createRepository<T>(tableName: string, idColumn: string = 'id'): BaseRepository<T> {
+    if (config.postgres.enabled) {
+      return new PostgresRepository<T>(tableName, idColumn);
+    }
+    return new SupabaseRepository<T>(tableName);
   }
 
   async findAll(

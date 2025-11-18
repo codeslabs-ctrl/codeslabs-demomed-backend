@@ -1,4 +1,5 @@
-import { supabase } from '../config/database.js';
+import { supabase, postgresPool } from '../config/database.js';
+import { USE_POSTGRES } from '../config/database-config.js';
 
 export class ServiciosController {
 
@@ -7,36 +8,81 @@ export class ServiciosController {
     try {
       const { especialidad_id, activo } = req.query;
 
-      let query = supabase.from('servicios').select(`
-        id,
-        nombre_servicio,
-        monto_base,
-        moneda,
-        descripcion,
-        activo,
-        especialidad_id
-      `);
+      if (USE_POSTGRES) {
+        const client = await postgresPool.connect();
+        try {
+          let sqlQuery = `
+            SELECT 
+              id,
+              nombre_servicio,
+              monto_base,
+              moneda,
+              descripcion,
+              activo,
+              especialidad_id
+            FROM servicios
+            WHERE 1=1
+          `;
 
-      if (especialidad_id) {
-        query = query.eq('especialidad_id', especialidad_id);
+          const params: any[] = [];
+          let paramIndex = 1;
+
+          if (especialidad_id) {
+            sqlQuery += ` AND especialidad_id = $${paramIndex}`;
+            params.push(parseInt(especialidad_id));
+            paramIndex++;
+          }
+
+          if (activo !== undefined) {
+            sqlQuery += ` AND activo = $${paramIndex}`;
+            params.push(activo === 'true');
+            paramIndex++;
+          }
+
+          sqlQuery += ` ORDER BY nombre_servicio ASC`;
+
+          console.log('🔍 PostgreSQL query:', sqlQuery);
+          console.log('🔍 Params:', params);
+
+          const result = await client.query(sqlQuery, params);
+          console.log('✅ Datos obtenidos:', result.rows.length, 'servicios');
+
+          res.json({ success: true, data: result.rows });
+        } finally {
+          client.release();
+        }
+      } else {
+        let query = supabase.from('servicios').select(`
+          id,
+          nombre_servicio,
+          monto_base,
+          moneda,
+          descripcion,
+          activo,
+          especialidad_id
+        `);
+
+        if (especialidad_id) {
+          query = query.eq('especialidad_id', especialidad_id);
+        }
+
+        if (activo !== undefined) {
+          query = query.eq('activo', activo === 'true');
+        }
+
+        console.log('🔍 Query ejecutado:', query);
+        const { data, error } = await query.order('nombre_servicio');
+        console.log('🔍 Datos obtenidos:', data);
+        console.log('🔍 Error obtenido:', error);
+
+        if (error) {
+          console.log('❌ Error en query:', error.message);
+          return res.status(500).json({ success: false, error: error.message });
+        }
+
+        console.log('✅ Enviando respuesta:', { success: true, data });
+        res.json({ success: true, data });
       }
-
-      if (activo !== undefined) {
-        query = query.eq('activo', activo === 'true');
-      }
-
-      console.log('🔍 Query ejecutado:', query);
-      const { data, error } = await query.order('nombre_servicio');
-      console.log('🔍 Datos obtenidos:', data);
-      console.log('🔍 Error obtenido:', error);
-
-      if (error) {
-        console.log('❌ Error en query:', error.message);
-        return res.status(500).json({ success: false, error: error.message });
-      }
-
-      console.log('✅ Enviando respuesta:', { success: true, data });
-      res.json({ success: true, data });
     } catch (error) {
       console.error('Error obteniendo servicios:', error);
       res.status(500).json({ success: false, error: 'Error interno del servidor' });
@@ -63,36 +109,104 @@ export class ServiciosController {
         });
       }
 
+      if (USE_POSTGRES) {
+        const client = await postgresPool.connect();
+        try {
+          await client.query('BEGIN');
 
-      const { data, error } = await supabase
-        .from('servicios')
-        .insert({
-          nombre_servicio,
-          especialidad_id: parseInt(especialidad_id),
-          monto_base: parseFloat(monto_base),
-          moneda,
-          descripcion
+          // Insertar el servicio
+          const insertQuery = `
+            INSERT INTO servicios (nombre_servicio, especialidad_id, monto_base, moneda, descripcion, activo)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING id, nombre_servicio, monto_base, moneda, descripcion, activo, especialidad_id
+          `;
+          
+          const insertResult = await client.query(insertQuery, [
+            nombre_servicio,
+            parseInt(especialidad_id),
+            parseFloat(monto_base),
+            moneda,
+            descripcion || null,
+            true // activo por defecto
+          ]);
 
-        })
-        .select(`
-          id,
-          nombre_servicio,
-          monto_base,
-          moneda,
-          descripcion,
-          activo,
-          especialidades!left(
+          // Obtener la especialidad asociada
+          const especialidadQuery = `
+            SELECT id, nombre_especialidad
+            FROM especialidades
+            WHERE id = $1
+          `;
+          const especialidadResult = await client.query(especialidadQuery, [parseInt(especialidad_id)]);
+
+          await client.query('COMMIT');
+
+          const servicio = insertResult.rows[0];
+          const especialidad = especialidadResult.rows[0] || null;
+
+          const response = {
+            ...servicio,
+            especialidades: especialidad ? {
+              id: especialidad.id,
+              nombre_especialidad: especialidad.nombre_especialidad
+            } : null
+          };
+
+          res.status(201).json({ success: true, data: response });
+        } catch (dbError: any) {
+          await client.query('ROLLBACK');
+          console.error('❌ PostgreSQL error in createServicio:', dbError);
+          
+          // Manejar errores de constraint
+          if (dbError.code === '23505') {
+            return res.status(400).json({ 
+              success: false, 
+              error: 'Ya existe un servicio con ese nombre para esta especialidad' 
+            });
+          }
+          if (dbError.code === '23503') {
+            return res.status(400).json({ 
+              success: false, 
+              error: 'La especialidad especificada no existe' 
+            });
+          }
+          
+          res.status(500).json({ 
+            success: false, 
+            error: 'Error al crear el servicio' 
+          });
+        } finally {
+          client.release();
+        }
+      } else {
+        const { data, error } = await supabase
+          .from('servicios')
+          .insert({
+            nombre_servicio,
+            especialidad_id: parseInt(especialidad_id),
+            monto_base: parseFloat(monto_base),
+            moneda,
+            descripcion
+          })
+          .select(`
             id,
-            nombre_especialidad
-          )
-        `)
-        .single();
+            nombre_servicio,
+            monto_base,
+            moneda,
+            descripcion,
+            activo,
+            especialidades!left(
+              id,
+              nombre_especialidad
+            )
+          `)
+          .single();
 
-      if (error) {
-        return res.status(400).json({ success: false, error: error.message });
+        if (error) {
+          return res.status(400).json({ success: false, error: error.message });
+        }
+
+        res.status(201).json({ success: true, data });
       }
-
-      res.status(201).json({ success: true, data });
     } catch (error) {
       console.error('Error creando servicio:', error);
       res.status(500).json({ success: false, error: 'Error interno del servidor' });
@@ -105,40 +219,118 @@ export class ServiciosController {
       const { id } = req.params;
       const updateData = req.body;
 
-      // Validar que el servicio existe
-      const { data: existingService, error: checkError } = await supabase
-        .from('servicios')
-        .select('id')
-        .eq('id', id)
-        .single();
+      if (USE_POSTGRES) {
+        const client = await postgresPool.connect();
+        try {
+          // Validar que el servicio existe
+          const checkQuery = 'SELECT id FROM servicios WHERE id = $1';
+          const checkResult = await client.query(checkQuery, [parseInt(id)]);
 
-      if (checkError || !existingService) {
-        return res.status(404).json({ success: false, error: 'Servicio no encontrado' });
-      }
+          if (checkResult.rows.length === 0) {
+            return res.status(404).json({ success: false, error: 'Servicio no encontrado' });
+          }
 
-      const { data, error } = await supabase
-        .from('servicios')
-        .update(updateData)
-        .eq('id', id)
-        .select(`
-          id,
-          nombre_servicio,
-          monto_base,
-          moneda,
-          descripcion,
-          activo,
-          especialidades!left(
+          // Construir query dinámico de actualización
+          const allowedFields = ['nombre_servicio', 'especialidad_id', 'monto_base', 'moneda', 'descripcion', 'activo'];
+          const updateFields: string[] = [];
+          const params: any[] = [];
+          let paramIndex = 1;
+
+          for (const field of allowedFields) {
+            if (updateData[field] !== undefined) {
+              updateFields.push(`${field} = $${paramIndex}`);
+              if (field === 'especialidad_id') {
+                params.push(parseInt(updateData[field]));
+              } else if (field === 'monto_base') {
+                params.push(parseFloat(updateData[field]));
+              } else if (field === 'activo') {
+                params.push(updateData[field] === true || updateData[field] === 'true');
+              } else {
+                params.push(updateData[field]);
+              }
+              paramIndex++;
+            }
+          }
+
+          if (updateFields.length === 0) {
+            return res.status(400).json({ success: false, error: 'No hay campos para actualizar' });
+          }
+
+          params.push(parseInt(id));
+          const updateQuery = `
+            UPDATE servicios 
+            SET ${updateFields.join(', ')}
+            WHERE id = $${paramIndex}
+            RETURNING id, nombre_servicio, monto_base, moneda, descripcion, activo, especialidad_id
+          `;
+
+          const updateResult = await client.query(updateQuery, params);
+
+          // Obtener la especialidad asociada
+          const especialidadQuery = `
+            SELECT id, nombre_especialidad
+            FROM especialidades
+            WHERE id = $1
+          `;
+          const especialidadResult = await client.query(especialidadQuery, [updateResult.rows[0].especialidad_id]);
+
+          const servicio = updateResult.rows[0];
+          const especialidad = especialidadResult.rows[0] || null;
+
+          const response = {
+            ...servicio,
+            especialidades: especialidad ? {
+              id: especialidad.id,
+              nombre_especialidad: especialidad.nombre_especialidad
+            } : null
+          };
+
+          res.json({ success: true, data: response });
+        } catch (dbError: any) {
+          console.error('❌ PostgreSQL error in updateServicio:', dbError);
+          res.status(500).json({ 
+            success: false, 
+            error: 'Error al actualizar el servicio' 
+          });
+        } finally {
+          client.release();
+        }
+      } else {
+        // Validar que el servicio existe
+        const { data: existingService, error: checkError } = await supabase
+          .from('servicios')
+          .select('id')
+          .eq('id', id)
+          .single();
+
+        if (checkError || !existingService) {
+          return res.status(404).json({ success: false, error: 'Servicio no encontrado' });
+        }
+
+        const { data, error } = await supabase
+          .from('servicios')
+          .update(updateData)
+          .eq('id', id)
+          .select(`
             id,
-            nombre_especialidad
-          )
-        `)
-        .single();
+            nombre_servicio,
+            monto_base,
+            moneda,
+            descripcion,
+            activo,
+            especialidades!left(
+              id,
+              nombre_especialidad
+            )
+          `)
+          .single();
 
-      if (error) {
-        return res.status(400).json({ success: false, error: error.message });
+        if (error) {
+          return res.status(400).json({ success: false, error: error.message });
+        }
+
+        res.json({ success: true, data });
       }
-
-      res.json({ success: true, data });
     } catch (error) {
       console.error('Error actualizando servicio:', error);
       res.status(500).json({ success: false, error: 'Error interno del servidor' });
@@ -150,45 +342,83 @@ export class ServiciosController {
     try {
       const { id } = req.params;
 
-      // Verificar que el servicio existe
-      const { data: existingService, error: checkError } = await supabase
-        .from('servicios')
-        .select('id')
-        .eq('id', id)
-        .single();
+      if (USE_POSTGRES) {
+        const client = await postgresPool.connect();
+        try {
+          // Verificar que el servicio existe
+          const checkQuery = 'SELECT id FROM servicios WHERE id = $1';
+          const checkResult = await client.query(checkQuery, [parseInt(id)]);
 
-      if (checkError || !existingService) {
-        return res.status(404).json({ success: false, error: 'Servicio no encontrado' });
+          if (checkResult.rows.length === 0) {
+            return res.status(404).json({ success: false, error: 'Servicio no encontrado' });
+          }
+
+          // Verificar si el servicio está siendo usado en consultas
+          const usoQuery = 'SELECT id FROM servicios_consulta WHERE servicio_id = $1 LIMIT 1';
+          const usoResult = await client.query(usoQuery, [parseInt(id)]);
+
+          if (usoResult.rows.length > 0) {
+            return res.status(400).json({ 
+              success: false, 
+              error: 'No se puede eliminar el servicio porque está siendo usado en consultas' 
+            });
+          }
+
+          // Eliminar el servicio
+          const deleteQuery = 'DELETE FROM servicios WHERE id = $1';
+          await client.query(deleteQuery, [parseInt(id)]);
+
+          res.json({ success: true, message: 'Servicio eliminado exitosamente' });
+        } catch (dbError: any) {
+          console.error('❌ PostgreSQL error in deleteServicio:', dbError);
+          res.status(500).json({ 
+            success: false, 
+            error: 'Error al eliminar el servicio' 
+          });
+        } finally {
+          client.release();
+        }
+      } else {
+        // Verificar que el servicio existe
+        const { data: existingService, error: checkError } = await supabase
+          .from('servicios')
+          .select('id')
+          .eq('id', id)
+          .single();
+
+        if (checkError || !existingService) {
+          return res.status(404).json({ success: false, error: 'Servicio no encontrado' });
+        }
+
+        // Verificar si el servicio está siendo usado en consultas
+        const { data: serviciosEnUso, error: usoError } = await supabase
+          .from('servicios_consulta')
+          .select('id')
+          .eq('servicio_id', id)
+          .limit(1);
+
+        if (usoError) {
+          return res.status(500).json({ success: false, error: 'Error verificando uso del servicio' });
+        }
+
+        if (serviciosEnUso && serviciosEnUso.length > 0) {
+          return res.status(400).json({ 
+            success: false, 
+            error: 'No se puede eliminar el servicio porque está siendo usado en consultas' 
+          });
+        }
+
+        const { error } = await supabase
+          .from('servicios')
+          .delete()
+          .eq('id', id);
+
+        if (error) {
+          return res.status(400).json({ success: false, error: error.message });
+        }
+
+        res.json({ success: true, message: 'Servicio eliminado exitosamente' });
       }
-
-      // Verificar si el servicio está siendo usado en consultas
-      const { data: serviciosEnUso, error: usoError } = await supabase
-        .from('servicios_consulta')
-        .select('id')
-        .eq('servicio_id', id)
-        .limit(1);
-
-      if (usoError) {
-        return res.status(500).json({ success: false, error: 'Error verificando uso del servicio' });
-      }
-
-      if (serviciosEnUso && serviciosEnUso.length > 0) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'No se puede eliminar el servicio porque está siendo usado en consultas' 
-        });
-      }
-
-      const { error } = await supabase
-        .from('servicios')
-        .delete()
-        .eq('id', id);
-
-      if (error) {
-        return res.status(400).json({ success: false, error: error.message });
-      }
-
-      res.json({ success: true, message: 'Servicio eliminado exitosamente' });
     } catch (error) {
       console.error('Error eliminando servicio:', error);
       res.status(500).json({ success: false, error: 'Error interno del servidor' });
@@ -200,14 +430,45 @@ export class ServiciosController {
     try {
       const { especialidad_id } = req.params;
 
-      const { data, error } = await supabase
-        .rpc('obtener_servicios_por_especialidad', { p_especialidad_id: parseInt(especialidad_id) });
+      if (USE_POSTGRES) {
+        const client = await postgresPool.connect();
+        try {
+          const query = `
+            SELECT 
+              s.id,
+              s.nombre_servicio,
+              s.monto_base,
+              s.moneda,
+              s.descripcion,
+              s.activo,
+              s.especialidad_id
+            FROM servicios s
+            WHERE s.especialidad_id = $1
+              AND s.activo = true
+            ORDER BY s.nombre_servicio ASC
+          `;
 
-      if (error) {
-        return res.status(500).json({ success: false, error: error.message });
+          const result = await client.query(query, [parseInt(especialidad_id)]);
+          res.json({ success: true, data: result.rows });
+        } catch (dbError: any) {
+          console.error('❌ PostgreSQL error in getServiciosPorEspecialidad:', dbError);
+          res.status(500).json({ 
+            success: false, 
+            error: 'Error al obtener servicios por especialidad' 
+          });
+        } finally {
+          client.release();
+        }
+      } else {
+        const { data, error } = await supabase
+          .rpc('obtener_servicios_por_especialidad', { p_especialidad_id: parseInt(especialidad_id) });
+
+        if (error) {
+          return res.status(500).json({ success: false, error: error.message });
+        }
+
+        res.json({ success: true, data });
       }
-
-      res.json({ success: true, data });
     } catch (error) {
       console.error('Error obteniendo servicios por especialidad:', error);
       res.status(500).json({ success: false, error: 'Error interno del servidor' });
@@ -219,29 +480,82 @@ export class ServiciosController {
     try {
       const { id } = req.params;
 
-      const { data, error } = await supabase
-        .from('servicios')
-        .select(`
-          id,
-          nombre_servicio,
-          monto_base,
-          moneda,
-          descripcion,
-          activo,
-          especialidades!left(
+      if (USE_POSTGRES) {
+        const client = await postgresPool.connect();
+        try {
+          const query = `
+            SELECT 
+              s.id,
+              s.nombre_servicio,
+              s.monto_base,
+              s.moneda,
+              s.descripcion,
+              s.activo,
+              s.especialidad_id,
+              e.id as especialidad_id_detail,
+              e.nombre_especialidad,
+              e.descripcion as especialidad_descripcion
+            FROM servicios s
+            LEFT JOIN especialidades e ON s.especialidad_id = e.id
+            WHERE s.id = $1
+          `;
+
+          const result = await client.query(query, [parseInt(id)]);
+
+          if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, error: 'Servicio no encontrado' });
+          }
+
+          const servicio = result.rows[0];
+          const response = {
+            id: servicio.id,
+            nombre_servicio: servicio.nombre_servicio,
+            monto_base: servicio.monto_base,
+            moneda: servicio.moneda,
+            descripcion: servicio.descripcion,
+            activo: servicio.activo,
+            especialidades: servicio.especialidad_id_detail ? {
+              id: servicio.especialidad_id_detail,
+              nombre_especialidad: servicio.nombre_especialidad,
+              descripcion: servicio.especialidad_descripcion
+            } : null
+          };
+
+          res.json({ success: true, data: response });
+        } catch (dbError: any) {
+          console.error('❌ PostgreSQL error in getServicioById:', dbError);
+          res.status(500).json({ 
+            success: false, 
+            error: 'Error al obtener el servicio' 
+          });
+        } finally {
+          client.release();
+        }
+      } else {
+        const { data, error } = await supabase
+          .from('servicios')
+          .select(`
             id,
-            nombre_especialidad,
-            descripcion
-          )
-        `)
-        .eq('id', id)
-        .single();
+            nombre_servicio,
+            monto_base,
+            moneda,
+            descripcion,
+            activo,
+            especialidades!left(
+              id,
+              nombre_especialidad,
+              descripcion
+            )
+          `)
+          .eq('id', id)
+          .single();
 
-      if (error) {
-        return res.status(404).json({ success: false, error: 'Servicio no encontrado' });
+        if (error) {
+          return res.status(404).json({ success: false, error: 'Servicio no encontrado' });
+        }
+
+        res.json({ success: true, data });
       }
-
-      res.json({ success: true, data });
     } catch (error) {
       console.error('Error obteniendo servicio:', error);
       res.status(500).json({ success: false, error: 'Error interno del servidor' });

@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
-import { supabase } from '../config/database.js';
+import { supabase, postgresPool } from '../config/database.js';
+import { USE_POSTGRES } from '../config/database-config.js';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -74,21 +75,6 @@ export class ArchivoController {
         return;
       }
 
-      // Verificar que la historia existe
-      const { data: historia, error: historiaError } = await supabase
-        .from('historico_pacientes')
-        .select('id')
-        .eq('id', historia_id)
-        .single();
-
-      if (historiaError || !historia) {
-        res.status(404).json({
-          success: false,
-          error: { message: 'Historia no encontrada' }
-        });
-        return;
-      }
-
       // Parsear descripciones si vienen como JSON string
       let descripcionesArray: string[] = [];
       if (descripciones) {
@@ -101,39 +87,122 @@ export class ArchivoController {
         }
       }
 
-      // Preparar datos para insertar
-      const clinicaAlias = process.env['CLINICA_ALIAS'];
-      const archivosData = files.map((file, index) => ({
-        historia_id: parseInt(historia_id),
-        nombre_original: file.originalname,
-        nombre_archivo: file.filename,
-        ruta_archivo: file.path,
-        tipo_mime: file.mimetype,
-        tamano_bytes: file.size,
-        descripcion: descripcionesArray[index] || null,
-        clinica_alias: clinicaAlias
-      }));
+      if (USE_POSTGRES) {
+        const client = await postgresPool.connect();
+        try {
+          await client.query('BEGIN');
 
-      // Insertar todos los archivos en la base de datos
-      const { data, error } = await supabase
-        .from('archivos_anexos')
-        .insert(archivosData)
-        .select();
+          // Verificar que la historia existe
+          const historiaCheck = await client.query(
+            'SELECT id FROM historico_pacientes WHERE id = $1',
+            [parseInt(historia_id)]
+          );
 
-      if (error) {
-        console.error('Error inserting archivos:', error);
-        res.status(500).json({
-          success: false,
-          error: { message: 'Error al guardar los archivos en la base de datos' }
+          if (historiaCheck.rows.length === 0) {
+            await client.query('ROLLBACK');
+            res.status(404).json({
+              success: false,
+              error: { message: 'Historia no encontrada' }
+            });
+            return;
+          }
+
+          // Insertar todos los archivos en la base de datos
+          const insertQuery = `
+            INSERT INTO archivos_anexos (
+              historia_id, nombre_original, nombre_archivo, ruta_archivo,
+              tipo_mime, tamano_bytes, descripcion, activo
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            RETURNING *
+          `;
+
+          const insertedFiles = [];
+          for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            if (!file) {
+              console.warn(`⚠️ Archivo en índice ${i} es undefined, omitiendo...`);
+              continue;
+            }
+            const result = await client.query(insertQuery, [
+              parseInt(historia_id),
+              file.originalname,
+              file.filename,
+              file.path,
+              file.mimetype,
+              file.size,
+              descripcionesArray[i] || null,
+              true
+            ]);
+            insertedFiles.push(result.rows[0]);
+          }
+
+          await client.query('COMMIT');
+
+          res.json({
+            success: true,
+            data: insertedFiles,
+            message: `${files.length} archivo(s) subido(s) exitosamente`
+          });
+        } catch (error: any) {
+          await client.query('ROLLBACK');
+          console.error('Error inserting archivos:', error);
+          res.status(500).json({
+            success: false,
+            error: { message: 'Error al guardar los archivos en la base de datos' }
+          });
+        } finally {
+          client.release();
+        }
+      } else {
+        // Verificar que la historia existe
+        const { data: historia, error: historiaError } = await supabase
+          .from('historico_pacientes')
+          .select('id')
+          .eq('id', historia_id)
+          .single();
+
+        if (historiaError || !historia) {
+          res.status(404).json({
+            success: false,
+            error: { message: 'Historia no encontrada' }
+          });
+          return;
+        }
+
+        // Preparar datos para insertar
+        const clinicaAlias = process.env['CLINICA_ALIAS'];
+        const archivosData = files.map((file, index) => ({
+          historia_id: parseInt(historia_id),
+          nombre_original: file.originalname,
+          nombre_archivo: file.filename,
+          ruta_archivo: file.path,
+          tipo_mime: file.mimetype,
+          tamano_bytes: file.size,
+          descripcion: descripcionesArray[index] || null,
+          clinica_alias: clinicaAlias
+        }));
+
+        // Insertar todos los archivos en la base de datos
+        const { data, error } = await supabase
+          .from('archivos_anexos')
+          .insert(archivosData)
+          .select();
+
+        if (error) {
+          console.error('Error inserting archivos:', error);
+          res.status(500).json({
+            success: false,
+            error: { message: 'Error al guardar los archivos en la base de datos' }
+          });
+          return;
+        }
+
+        res.json({
+          success: true,
+          data: data,
+          message: `${files.length} archivo(s) subido(s) exitosamente`
         });
-        return;
       }
-
-      res.json({
-        success: true,
-        data: data,
-        message: `${files.length} archivo(s) subido(s) exitosamente`
-      });
 
     } catch (error) {
       console.error('Error uploading archivos:', error);
@@ -149,26 +218,55 @@ export class ArchivoController {
     try {
       const { historiaId } = req.params;
 
-      const { data, error } = await supabase
-        .from('archivos_anexos')
-        .select('*')
-        .eq('historia_id', historiaId)
-        .eq('activo', true)
-        .order('fecha_subida', { ascending: false });
-
-      if (error) {
-        console.error('Error fetching archivos:', error);
-        res.status(500).json({
+      if (!historiaId || isNaN(parseInt(historiaId))) {
+        res.status(400).json({
           success: false,
-          error: { message: 'Error al obtener los archivos' }
+          error: { message: 'ID de historia inválido' }
         });
         return;
       }
 
-      res.json({
-        success: true,
-        data: data || []
-      });
+      if (USE_POSTGRES) {
+        const client = await postgresPool.connect();
+        try {
+          const query = `
+            SELECT * 
+            FROM archivos_anexos 
+            WHERE historia_id = $1 AND activo = true 
+            ORDER BY fecha_subida DESC
+          `;
+          
+          const result = await client.query(query, [parseInt(historiaId)]);
+          
+          res.json({
+            success: true,
+            data: result.rows || []
+          });
+        } finally {
+          client.release();
+        }
+      } else {
+        const { data, error } = await supabase
+          .from('archivos_anexos')
+          .select('*')
+          .eq('historia_id', historiaId)
+          .eq('activo', true)
+          .order('fecha_subida', { ascending: false });
+
+        if (error) {
+          console.error('Error fetching archivos:', error);
+          res.status(500).json({
+            success: false,
+            error: { message: 'Error al obtener los archivos' }
+          });
+          return;
+        }
+
+        res.json({
+          success: true,
+          data: data || []
+        });
+      }
 
     } catch (error) {
       console.error('Error getting archivos:', error);
@@ -184,25 +282,61 @@ export class ArchivoController {
     try {
       const { id } = req.params;
 
-      const { data, error } = await supabase
-        .from('archivos_anexos')
-        .select('*')
-        .eq('id', id)
-        .eq('activo', true)
-        .single();
-
-      if (error || !data) {
-        res.status(404).json({
+      if (!id || isNaN(parseInt(id))) {
+        res.status(400).json({
           success: false,
-          error: { message: 'Archivo no encontrado' }
+          error: { message: 'ID de archivo inválido' }
         });
         return;
       }
 
-      res.json({
-        success: true,
-        data: data
-      });
+      if (USE_POSTGRES) {
+        const client = await postgresPool.connect();
+        try {
+          const query = `
+            SELECT * 
+            FROM archivos_anexos 
+            WHERE id = $1 AND activo = true
+          `;
+          
+          const result = await client.query(query, [parseInt(id)]);
+          
+          if (result.rows.length === 0) {
+            res.status(404).json({
+              success: false,
+              error: { message: 'Archivo no encontrado' }
+            });
+            return;
+          }
+
+          res.json({
+            success: true,
+            data: result.rows[0]
+          });
+        } finally {
+          client.release();
+        }
+      } else {
+        const { data, error } = await supabase
+          .from('archivos_anexos')
+          .select('*')
+          .eq('id', id)
+          .eq('activo', true)
+          .single();
+
+        if (error || !data) {
+          res.status(404).json({
+            success: false,
+            error: { message: 'Archivo no encontrado' }
+          });
+          return;
+        }
+
+        res.json({
+          success: true,
+          data: data
+        });
+      }
 
     } catch (error) {
       console.error('Error getting archivo:', error);
@@ -219,29 +353,66 @@ export class ArchivoController {
       const { id } = req.params;
       const { descripcion } = req.body;
 
-      const { data, error } = await supabase
-        .from('archivos_anexos')
-        .update({
-          descripcion: descripcion,
-          fecha_actualizacion: new Date().toISOString()
-        })
-        .eq('id', id)
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Error updating archivo:', error);
-        res.status(500).json({
+      if (!id || isNaN(parseInt(id))) {
+        res.status(400).json({
           success: false,
-          error: { message: 'Error al actualizar el archivo' }
+          error: { message: 'ID de archivo inválido' }
         });
         return;
       }
 
-      res.json({
-        success: true,
-        data: data
-      });
+      if (USE_POSTGRES) {
+        const client = await postgresPool.connect();
+        try {
+          const updateQuery = `
+            UPDATE archivos_anexos 
+            SET descripcion = $1, fecha_actualizacion = NOW()
+            WHERE id = $2 AND activo = true
+            RETURNING *
+          `;
+          
+          const result = await client.query(updateQuery, [descripcion || null, parseInt(id)]);
+          
+          if (result.rows.length === 0) {
+            res.status(404).json({
+              success: false,
+              error: { message: 'Archivo no encontrado' }
+            });
+            return;
+          }
+
+          res.json({
+            success: true,
+            data: result.rows[0]
+          });
+        } finally {
+          client.release();
+        }
+      } else {
+        const { data, error } = await supabase
+          .from('archivos_anexos')
+          .update({
+            descripcion: descripcion,
+            fecha_actualizacion: new Date().toISOString()
+          })
+          .eq('id', id)
+          .select()
+          .single();
+
+        if (error) {
+          console.error('Error updating archivo:', error);
+          res.status(500).json({
+            success: false,
+            error: { message: 'Error al actualizar el archivo' }
+          });
+          return;
+        }
+
+        res.json({
+          success: true,
+          data: data
+        });
+      }
 
     } catch (error) {
       console.error('Error updating archivo:', error);
@@ -257,26 +428,62 @@ export class ArchivoController {
     try {
       const { id } = req.params;
 
-      const { error } = await supabase
-        .from('archivos_anexos')
-        .update({
-          activo: false,
-          fecha_actualizacion: new Date().toISOString()
-        })
-        .eq('id', id);
-
-      if (error) {
-        console.error('Error deleting archivo:', error);
-        res.status(500).json({
+      if (!id || isNaN(parseInt(id))) {
+        res.status(400).json({
           success: false,
-          error: { message: 'Error al eliminar el archivo' }
+          error: { message: 'ID de archivo inválido' }
         });
         return;
       }
 
-      res.json({
-        success: true
-      });
+      if (USE_POSTGRES) {
+        const client = await postgresPool.connect();
+        try {
+          const updateQuery = `
+            UPDATE archivos_anexos 
+            SET activo = false, fecha_actualizacion = NOW()
+            WHERE id = $1
+            RETURNING id
+          `;
+          
+          const result = await client.query(updateQuery, [parseInt(id)]);
+          
+          if (result.rows.length === 0) {
+            res.status(404).json({
+              success: false,
+              error: { message: 'Archivo no encontrado' }
+            });
+            return;
+          }
+
+          res.json({
+            success: true
+          });
+        } finally {
+          client.release();
+        }
+      } else {
+        const { error } = await supabase
+          .from('archivos_anexos')
+          .update({
+            activo: false,
+            fecha_actualizacion: new Date().toISOString()
+          })
+          .eq('id', id);
+
+        if (error) {
+          console.error('Error deleting archivo:', error);
+          res.status(500).json({
+            success: false,
+            error: { message: 'Error al eliminar el archivo' }
+          });
+          return;
+        }
+
+        res.json({
+          success: true
+        });
+      }
 
     } catch (error) {
       console.error('Error deleting archivo:', error);
@@ -292,20 +499,57 @@ export class ArchivoController {
     try {
       const { id } = req.params;
 
-      // Obtener información del archivo
-      const { data: archivo, error } = await supabase
-        .from('archivos_anexos')
-        .select('*')
-        .eq('id', id)
-        .eq('activo', true)
-        .single();
-
-      if (error || !archivo) {
-        res.status(404).json({
+      if (!id || isNaN(parseInt(id))) {
+        res.status(400).json({
           success: false,
-          error: { message: 'Archivo no encontrado' }
+          error: { message: 'ID de archivo inválido' }
         });
         return;
+      }
+
+      let archivo: any;
+
+      if (USE_POSTGRES) {
+        const client = await postgresPool.connect();
+        try {
+          const query = `
+            SELECT * 
+            FROM archivos_anexos 
+            WHERE id = $1 AND activo = true
+          `;
+          
+          const result = await client.query(query, [parseInt(id)]);
+          
+          if (result.rows.length === 0) {
+            res.status(404).json({
+              success: false,
+              error: { message: 'Archivo no encontrado' }
+            });
+            return;
+          }
+
+          archivo = result.rows[0];
+        } finally {
+          client.release();
+        }
+      } else {
+        // Obtener información del archivo
+        const { data, error } = await supabase
+          .from('archivos_anexos')
+          .select('*')
+          .eq('id', id)
+          .eq('activo', true)
+          .single();
+
+        if (error || !data) {
+          res.status(404).json({
+            success: false,
+            error: { message: 'Archivo no encontrado' }
+          });
+          return;
+        }
+
+        archivo = data;
       }
 
       // Verificar que el archivo existe en el sistema de archivos

@@ -35,6 +35,14 @@ export interface Config {
     url: string;
     anonKey: string;
   };
+  postgres: {
+    enabled: boolean;
+    host: string;
+    port: number;
+    database: string;
+    user: string;
+    password: string;
+  };
   api: {
     version: string;
     rateLimit: {
@@ -51,6 +59,11 @@ export interface Config {
     password: string;
     service: string;
     from: string;
+  };
+  sistema: {
+    nombre: string;
+    clinicaNombre: string;
+    clinicaAlias: string;
   };
 }
 

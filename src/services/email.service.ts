@@ -386,7 +386,7 @@ export class EmailService {
 
   private getConsultaPacienteTemplate(): EmailTemplate {
     return {
-      subject: 'Confirmación de Consulta - FemiMed',
+      subject: 'Confirmación de Consulta',
       html: `
         <!DOCTYPE html>
         <html>
@@ -406,7 +406,7 @@ export class EmailService {
           <div class="container">
             <div class="header">
               <h1>✅ Confirmación de Consulta</h1>
-              <p>Sistema de Gestión Médica FemiMed</p>
+              <p>${config.sistema.clinicaNombre}</p>
             </div>
             <div class="content">
               <p>Estimado/a <strong>{{pacienteNombre}}</strong>,</p>
@@ -432,7 +432,7 @@ export class EmailService {
               
               <p>Si tiene alguna pregunta, no dude en contactarnos.</p>
               
-              <p>Saludos cordiales,<br>Equipo FemiMed</p>
+              <p>Saludos cordiales,<br>Equipo del Sistema</p>
             </div>
             <div class="footer">
               <p>Este es un mensaje automático, por favor no responda a este email.</p>
@@ -442,7 +442,7 @@ export class EmailService {
         </html>
       `,
       text: `
-        Confirmación de Consulta - FemiMed
+        Confirmación de Consulta
         
         Estimado/a {{pacienteNombre}},
         
@@ -461,20 +461,20 @@ export class EmailService {
         - Para reagendar, contáctenos con 24h de anticipación
         
         Saludos,
-        Equipo FemiMed
+        Equipo del Sistema
       `
     };
   }
 
   private getMedicoWelcomeTemplate(): EmailTemplate {
     return {
-      subject: 'Bienvenido a FemiMed - Acceso al Sistema',
+      subject: 'Bienvenido - Acceso al Sistema',
       html: `
         <!DOCTYPE html>
         <html>
         <head>
           <meta charset="utf-8">
-          <title>Bienvenido a FemiMed</title>
+          <title>Bienvenido</title>
           <style>
             body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
             .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -490,13 +490,13 @@ export class EmailService {
         <body>
           <div class="container">
             <div class="header">
-              <h1>👨‍⚕️ FemiMed</h1>
-              <h2>¡Bienvenido al Sistema!</h2>
+              <h1>👨‍⚕️ ${config.sistema.clinicaNombre}</h1>
+              <h2>¡Bienvenido!</h2>
             </div>
             <div class="content">
               <p>Estimado/a Dr./Dra. <strong>{{nombre}}</strong>,</p>
               
-              <p>¡Bienvenido a FemiMed! Su cuenta de médico ha sido creada exitosamente y ya puede acceder al sistema.</p>
+              <p>¡Bienvenido! Su cuenta de médico ha sido creada exitosamente y ya puede acceder al sistema.</p>
               
               <div class="info-box">
                 <h3>🔑 Información de Acceso</h3>
@@ -523,7 +523,7 @@ export class EmailService {
               
               <p><strong>Pasos para acceder:</strong></p>
               <ol>
-                <li>Vaya a la página de login de FemiMed</li>
+                <li>Vaya a la página de login del sistema</li>
                 <li>Ingrese su email: <strong>{{userEmail}}</strong></li>
                 <li>Use el código OTP: <strong>{{otp}}</strong></li>
                 <li>El sistema le pedirá crear una nueva contraseña</li>
@@ -532,10 +532,10 @@ export class EmailService {
               
               <p>Una vez configurada su contraseña, podrá acceder normalmente con su email y la contraseña que establezca.</p>
               
-              <p>Saludos cordiales,<br>Equipo FemiMed</p>
+              <p>Saludos cordiales,<br>Equipo del Sistema</p>
             </div>
             <div class="footer">
-              <p>Sistema de Gestión Médica FemiMed</p>
+              <p>${config.sistema.clinicaNombre}</p>
               <p>Por seguridad, este código expirará automáticamente.</p>
             </div>
           </div>
@@ -543,11 +543,11 @@ export class EmailService {
         </html>
       `,
       text: `
-        Bienvenido a FemiMed - Acceso al Sistema
+        Bienvenido - Acceso al Sistema
         
         Estimado/a Dr./Dra. {{nombre}},
         
-        ¡Bienvenido a FemiMed! Su cuenta de médico ha sido creada exitosamente.
+        ¡Bienvenido! Su cuenta de médico ha sido creada exitosamente.
         
         INFORMACIÓN DE ACCESO:
         Usuario: {{username}}
@@ -564,7 +564,7 @@ export class EmailService {
         - Este código es de un solo uso
         
         PASOS PARA ACCEDER:
-        1. Vaya a la página de login de FemiMed
+        1. Vaya a la página de login del sistema
         2. Ingrese su email: {{userEmail}}
         3. Use el código OTP: {{otp}}
         4. El sistema le pedirá crear una nueva contraseña
@@ -573,14 +573,14 @@ export class EmailService {
         Una vez configurada su contraseña, podrá acceder normalmente.
         
         Saludos,
-        Equipo FemiMed
+        Equipo del Sistema
       `
     };
   }
 
   private getConsultaMedicoTemplate(): EmailTemplate {
     return {
-      subject: 'Nueva Consulta Agendada - FemiMed',
+      subject: 'Nueva Consulta Agendada',
       html: `
         <!DOCTYPE html>
         <html>
@@ -600,7 +600,7 @@ export class EmailService {
           <div class="container">
             <div class="header">
               <h1>👨‍⚕️ Nueva Consulta Agendada</h1>
-              <p>Sistema de Gestión Médica FemiMed</p>
+              <p>${config.sistema.clinicaNombre}</p>
             </div>
             <div class="content">
               <p>Dr./Dra. <strong>{{medicoNombre}}</strong>,</p>
@@ -617,12 +617,12 @@ export class EmailService {
                 <p><strong>Duración:</strong> {{duracion}} minutos</p>
               </div>
               
-              <p>Puede revisar todos sus pacientes en el sistema FemiMed.</p>
+              <p>Puede revisar todos sus pacientes en el sistema.</p>
               
-              <p>Saludos,<br>Equipo FemiMed</p>
+              <p>Saludos,<br>Equipo del Sistema</p>
             </div>
             <div class="footer">
-              <p>Sistema de Gestión Médica FemiMed</p>
+              <p>${config.sistema.clinicaNombre}</p>
             </div>
           </div>
         </body>
@@ -633,7 +633,7 @@ export class EmailService {
 
   private getConsultaReminderTemplate(): EmailTemplate {
     return {
-      subject: 'Recordatorio de Consulta - FemiMed',
+      subject: 'Recordatorio de Consulta',
       html: `
         <!DOCTYPE html>
         <html>
@@ -652,7 +652,7 @@ export class EmailService {
         <body>
           <div class="container">
             <div class="header">
-              <h1>⏰ FemiMed</h1>
+              <h1>⏰ Recordatorio de Consulta</h1>
               <h2>Recordatorio de Consulta</h2>
             </div>
             <div class="content">
@@ -677,7 +677,7 @@ export class EmailService {
               
               <p>Si necesita reagendar, contáctenos lo antes posible.</p>
               
-              <p>Saludos,<br>Equipo FemiMed</p>
+              <p>Saludos,<br>Equipo del Sistema</p>
             </div>
             <div class="footer">
               <p>Este es un recordatorio automático.</p>
@@ -691,7 +691,7 @@ export class EmailService {
 
   private getPasswordRecoveryTemplate(): EmailTemplate {
     return {
-      subject: 'Recuperación de Contraseña - FemiMed',
+      subject: 'Recuperación de Contraseña',
       html: `
         <!DOCTYPE html>
         <html>
@@ -711,7 +711,7 @@ export class EmailService {
         <body>
           <div class="container">
             <div class="header">
-              <h1>🔐 FemiMed</h1>
+              <h1>🔐 Recuperación de Contraseña</h1>
               <h2>Recuperación de Contraseña</h2>
             </div>
             <div class="content">
@@ -732,7 +732,7 @@ export class EmailService {
                 <li>Si no solicitó este cambio, ignore este email</li>
               </ul>
               
-              <p>Saludos,<br>Equipo FemiMed</p>
+              <p>Saludos,<br>Equipo del Sistema</p>
             </div>
             <div class="footer">
               <p>Por seguridad, este código expirará automáticamente.</p>
@@ -746,7 +746,7 @@ export class EmailService {
 
   private getUserVerificationTemplate(): EmailTemplate {
     return {
-      subject: 'Verificación de Usuario - FemiMed',
+      subject: 'Verificación de Usuario',
       html: `
         <!DOCTYPE html>
         <html>
@@ -766,13 +766,13 @@ export class EmailService {
         <body>
           <div class="container">
             <div class="header">
-              <h1>✅ FemiMed</h1>
+              <h1>✅ Verificación de Usuario</h1>
               <h2>Verificación de Usuario</h2>
             </div>
             <div class="content">
               <p>Estimado/a <strong>{{nombre}}</strong>,</p>
               
-              <p>Bienvenido a FemiMed. Para completar su registro, use el siguiente código de verificación:</p>
+              <p>Bienvenido. Para completar su registro, use el siguiente código de verificación:</p>
               
               <div class="otp-box">
                 <h3>Su código de verificación es:</h3>
@@ -782,10 +782,10 @@ export class EmailService {
               
               <p>Una vez verificado, podrá acceder a todas las funcionalidades del sistema.</p>
               
-              <p>Saludos,<br>Equipo FemiMed</p>
+              <p>Saludos,<br>Equipo del Sistema</p>
             </div>
             <div class="footer">
-              <p>Gracias por unirse a FemiMed.</p>
+              <p>Gracias por unirse al sistema.</p>
             </div>
           </div>
         </body>
@@ -796,13 +796,13 @@ export class EmailService {
 
   private getWelcomeTemplate(): EmailTemplate {
     return {
-      subject: 'Bienvenido a FemiMed',
+      subject: 'Bienvenido',
       html: `
         <!DOCTYPE html>
         <html>
         <head>
           <meta charset="utf-8">
-          <title>Bienvenido a FemiMed</title>
+          <title>Bienvenido</title>
           <style>
             body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
             .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -815,13 +815,13 @@ export class EmailService {
         <body>
           <div class="container">
             <div class="header">
-              <h1>🎉 FemiMed</h1>
+              <h1>🎉 ¡Bienvenido!</h1>
               <h2>¡Bienvenido!</h2>
             </div>
             <div class="content">
               <p>Estimado/a <strong>{{nombre}}</strong>,</p>
               
-              <p>¡Bienvenido a FemiMed! Su cuenta ha sido creada exitosamente.</p>
+              <p>¡Bienvenido! Su cuenta ha sido creada exitosamente.</p>
               
               <div class="info-box">
                 <h3>📋 Información de su Cuenta</h3>
@@ -835,10 +835,10 @@ export class EmailService {
               
               <p>Puede acceder al sistema en cualquier momento para gestionar sus pacientes y consultas.</p>
               
-              <p>Saludos,<br>Equipo FemiMed</p>
+              <p>Saludos,<br>Equipo del Sistema</p>
             </div>
             <div class="footer">
-              <p>Sistema de Gestión Médica FemiMed</p>
+              <p>${config.sistema.clinicaNombre}</p>
             </div>
           </div>
         </body>
@@ -900,7 +900,7 @@ export class EmailService {
    */
   private getRemisionNotificationTemplate(): EmailTemplate {
     return {
-      subject: 'Nueva Interconsulta de Paciente - FemiMed',
+      subject: 'Nueva Interconsulta de Paciente',
       html: `
         <!DOCTYPE html>
         <html>
@@ -930,7 +930,7 @@ export class EmailService {
           <div class="container">
             <div class="header">
               <h1>🏥 Nueva Remisión de Paciente</h1>
-              <p>Ha recibido una nueva remisión de paciente en FemiMed</p>
+              <p>Ha recibido una nueva remisión de paciente</p>
             </div>
             
             <div class="content">
@@ -988,11 +988,11 @@ export class EmailService {
                 <li>Mantenga comunicación con el médico remitente</li>
               </ul>
 
-              <p>Por favor, acceda al sistema FemiMed para gestionar esta remisión y proporcionar la atención médica correspondiente.</p>
+              <p>Por favor, acceda al sistema para gestionar esta remisión y proporcionar la atención médica correspondiente.</p>
             </div>
             
             <div class="footer">
-              <p>Sistema de Gestión Médica FemiMed</p>
+              <p>${config.sistema.clinicaNombre}</p>
               <p>Este es un mensaje automático, por favor no responder a este email.</p>
             </div>
           </div>
@@ -1004,7 +1004,7 @@ export class EmailService {
 
   private getCancelacionPacienteTemplate(): EmailTemplate {
     return {
-      subject: 'Consulta Cancelada - FemiMed',
+      subject: 'Consulta Cancelada',
       html: `
         <!DOCTYPE html>
         <html>
@@ -1028,7 +1028,7 @@ export class EmailService {
           <div class="container">
             <div class="header">
               <h1>🚫 Consulta Cancelada</h1>
-              <p>Sistema de Gestión Médica FemiMed</p>
+              <p>${config.sistema.clinicaNombre}</p>
             </div>
             
             <div class="content">
@@ -1073,13 +1073,13 @@ export class EmailService {
                 <ul>
                   <li>Si necesita reagendar su consulta, puede contactar directamente con el médico</li>
                   <li>Si tiene alguna pregunta, no dude en contactarnos</li>
-                  <li>Para nuevas consultas, puede acceder al sistema FemiMed</li>
+                  <li>Para nuevas consultas, puede acceder al sistema</li>
                 </ul>
               </div>
             </div>
             
             <div class="footer">
-              <p>Sistema de Gestión Médica FemiMed</p>
+              <p>${config.sistema.clinicaNombre}</p>
               <p>Este es un mensaje automático, por favor no responder a este email.</p>
             </div>
           </div>
@@ -1087,7 +1087,7 @@ export class EmailService {
         </html>
       `,
       text: `
-        CONSULTA CANCELADA - FemiMed
+        CONSULTA CANCELADA
         
         Estimado/a {{pacienteNombre}},
         
@@ -1104,14 +1104,14 @@ export class EmailService {
         Si necesita reagendar su consulta, puede contactar directamente con el médico.
         
         Saludos,
-        Equipo FemiMed
+        Equipo del Sistema
       `
     };
   }
 
   private getCancelacionMedicoTemplate(): EmailTemplate {
     return {
-      subject: 'Consulta Cancelada - FemiMed',
+      subject: 'Consulta Cancelada',
       html: `
         <!DOCTYPE html>
         <html>
@@ -1135,7 +1135,7 @@ export class EmailService {
           <div class="container">
             <div class="header">
               <h1>🚫 Consulta Cancelada</h1>
-              <p>Sistema de Gestión Médica FemiMed</p>
+              <p>${config.sistema.clinicaNombre}</p>
             </div>
             
             <div class="content">
@@ -1186,7 +1186,7 @@ export class EmailService {
             </div>
             
             <div class="footer">
-              <p>Sistema de Gestión Médica FemiMed</p>
+              <p>${config.sistema.clinicaNombre}</p>
               <p>Este es un mensaje automático, por favor no responder a este email.</p>
             </div>
           </div>
@@ -1194,7 +1194,7 @@ export class EmailService {
         </html>
       `,
       text: `
-        CONSULTA CANCELADA - FemiMed
+        CONSULTA CANCELADA
         
         Estimado/a Dr./Dra. {{medicoNombre}},
         
@@ -1214,14 +1214,14 @@ export class EmailService {
         - Contactar al paciente si es necesario
         
         Saludos,
-        Equipo FemiMed
+        Equipo del Sistema
       `
     };
   }
 
   private getReagendamientoPacienteTemplate(): EmailTemplate {
     return {
-      subject: 'Consulta Reagendada - FemiMed',
+      subject: `Consulta Reagendada - ${config.sistema.clinicaNombre}`,
       html: `
         <!DOCTYPE html>
         <html>
@@ -1246,7 +1246,7 @@ export class EmailService {
           <div class="container">
             <div class="header">
               <h1>📅 Consulta Reagendada</h1>
-              <p>Sistema de Gestión Médica FemiMed</p>
+              <p>${config.sistema.clinicaNombre}</p>
             </div>
             
             <div class="content">
@@ -1305,7 +1305,7 @@ export class EmailService {
             </div>
             
             <div class="footer">
-              <p>Sistema de Gestión Médica FemiMed</p>
+              <p>${config.sistema.clinicaNombre}</p>
               <p>Este es un mensaje automático, por favor no responder a este email.</p>
             </div>
           </div>
@@ -1313,7 +1313,7 @@ export class EmailService {
         </html>
       `,
       text: `
-        CONSULTA REAGENDADA - FemiMed
+        CONSULTA REAGENDADA - ${config.sistema.clinicaNombre}
         
         Estimado/a {{pacienteNombre}},
         
@@ -1336,14 +1336,14 @@ export class EmailService {
         - Si no puede asistir a la nueva fecha, contáctenos inmediatamente
         
         Saludos,
-        Equipo FemiMed
+        Equipo del Sistema
       `
     };
   }
 
   private getReagendamientoMedicoTemplate(): EmailTemplate {
     return {
-      subject: 'Consulta Reagendada - FemiMed',
+      subject: `Consulta Reagendada - ${config.sistema.clinicaNombre}`,
       html: `
         <!DOCTYPE html>
         <html>
@@ -1368,7 +1368,7 @@ export class EmailService {
           <div class="container">
             <div class="header">
               <h1>📅 Consulta Reagendada</h1>
-              <p>Sistema de Gestión Médica FemiMed</p>
+              <p>${config.sistema.clinicaNombre}</p>
             </div>
             
             <div class="content">
@@ -1427,7 +1427,7 @@ export class EmailService {
             </div>
             
             <div class="footer">
-              <p>Sistema de Gestión Médica FemiMed</p>
+              <p>${config.sistema.clinicaNombre}</p>
               <p>Este es un mensaje automático, por favor no responder a este email.</p>
             </div>
           </div>
@@ -1435,7 +1435,7 @@ export class EmailService {
         </html>
       `,
       text: `
-        CONSULTA REAGENDADA - FemiMed
+        CONSULTA REAGENDADA - ${config.sistema.clinicaNombre}
         
         Estimado/a Dr./Dra. {{medicoNombre}},
         
@@ -1458,14 +1458,14 @@ export class EmailService {
         - Contactar al paciente si es necesario
         
         Saludos,
-        Equipo FemiMed
+        Equipo del Sistema
       `
     };
   }
 
   private getFinalizacionPacienteTemplate(): EmailTemplate {
     return {
-      subject: 'Consulta Finalizada - FemiMed',
+      subject: `Consulta Finalizada - ${config.sistema.clinicaNombre}`,
       html: `
         <!DOCTYPE html>
         <html>
@@ -1490,7 +1490,7 @@ export class EmailService {
           <div class="container">
             <div class="header">
               <h1>✅ Consulta Finalizada</h1>
-              <p>Sistema de Gestión Médica FemiMed</p>
+              <p>${config.sistema.clinicaNombre}</p>
             </div>
             
             <div class="content">
@@ -1540,13 +1540,13 @@ export class EmailService {
                 <ul>
                   <li>Conserve este diagnóstico para futuras consultas</li>
                   <li>Si tiene dudas sobre el diagnóstico, contacte al médico</li>
-                  <li>Para seguimientos o nuevas consultas, acceda al sistema FemiMed</li>
+                  <li>Para seguimientos o nuevas consultas, acceda al sistema ${config.sistema.clinicaNombre}</li>
                 </ul>
               </div>
             </div>
             
             <div class="footer">
-              <p>Sistema de Gestión Médica FemiMed</p>
+              <p>${config.sistema.clinicaNombre}</p>
               <p>Este es un mensaje automático, por favor no responder a este email.</p>
             </div>
           </div>
@@ -1554,7 +1554,7 @@ export class EmailService {
         </html>
       `,
       text: `
-        CONSULTA FINALIZADA - FemiMed
+        CONSULTA FINALIZADA - ${config.sistema.clinicaNombre}
         
         Estimado/a {{pacienteNombre}},
         
@@ -1578,17 +1578,17 @@ export class EmailService {
         Próximos pasos:
         - Conserve este diagnóstico para futuras consultas
         - Si tiene dudas sobre el diagnóstico, contacte al médico
-        - Para seguimientos o nuevas consultas, acceda al sistema FemiMed
+        - Para seguimientos o nuevas consultas, acceda al sistema ${config.sistema.clinicaNombre}
         
         Saludos,
-        Equipo FemiMed
+        Equipo del Sistema
       `
     };
   }
 
   private getFinalizacionMedicoTemplate(): EmailTemplate {
     return {
-      subject: 'Consulta Finalizada - FemiMed',
+      subject: `Consulta Finalizada - ${config.sistema.clinicaNombre}`,
       html: `
         <!DOCTYPE html>
         <html>
@@ -1613,7 +1613,7 @@ export class EmailService {
           <div class="container">
             <div class="header">
               <h1>✅ Consulta Finalizada</h1>
-              <p>Sistema de Gestión Médica FemiMed</p>
+              <p>${config.sistema.clinicaNombre}</p>
             </div>
             
             <div class="content">
@@ -1669,7 +1669,7 @@ export class EmailService {
             </div>
             
             <div class="footer">
-              <p>Sistema de Gestión Médica FemiMed</p>
+              <p>${config.sistema.clinicaNombre}</p>
               <p>Este es un mensaje automático, por favor no responder a este email.</p>
             </div>
           </div>
@@ -1677,7 +1677,7 @@ export class EmailService {
         </html>
       `,
       text: `
-        CONSULTA FINALIZADA - FemiMed
+        CONSULTA FINALIZADA - ${config.sistema.clinicaNombre}
         
         Estimado/a Dr./Dra. {{medicoNombre}},
         
@@ -1704,7 +1704,7 @@ export class EmailService {
         - Revise su agenda para próximas consultas
         
         Saludos,
-        Equipo FemiMed
+        Equipo del Sistema
       `
     };
   }
@@ -1714,7 +1714,7 @@ export class EmailService {
    */
   getInformePacienteTemplate(): EmailTemplate {
     return {
-      subject: 'Informe Médico N° {{numero_informe}} - FemiMed',
+      subject: `Informe Médico N° {{numero_informe}} - ${config.sistema.clinicaNombre}`,
       html: `
         <!DOCTYPE html>
         <html>
@@ -1734,7 +1734,7 @@ export class EmailService {
           <div class="container">
             <div class="header">
               <h1>📄 Informe Médico</h1>
-              <p>Sistema de Gestión Médica FemiMed</p>
+              <p>${config.sistema.clinicaNombre}</p>
             </div>
             <div class="content">
               <p>Estimado/a <strong>{{pacienteNombre}}</strong>,</p>
@@ -1752,7 +1752,7 @@ export class EmailService {
         </html>
       `,
       text: `
-        Informe Médico - FemiMed
+        Informe Médico - ${config.sistema.clinicaNombre}
         
         Estimado/a {{pacienteNombre}},
         Adjunto encontrará su Informe Médico N° {{numero_informe}}, emitido el {{fecha_emision}}.

@@ -1,4 +1,4 @@
-import { RemisionRepository } from '../repositories/remision.repository.js';
+import { RemisionRepository, RemisionRepositoryType } from '../repositories/remision.repository.js';
 import { 
   RemisionData, 
   CreateRemisionRequest, 
@@ -7,9 +7,11 @@ import {
 } from '../models/remision.model.js';
 import { EmailService } from './email.service.js';
 import { supabase } from '../config/database.js';
+import { USE_POSTGRES } from '../config/database-config.js';
+import { postgresPool } from '../config/database.js';
 
 export class RemisionService {
-  private remisionRepository: RemisionRepository;
+  private remisionRepository: InstanceType<RemisionRepositoryType>;
 
   constructor() {
     this.remisionRepository = new RemisionRepository();
@@ -216,49 +218,110 @@ export class RemisionService {
         throw new Error(`ID de paciente inválido: ${remision.paciente_id}`);
       }
 
-      // Obtener datos del paciente
-      console.log('🔍 Buscando paciente con ID:', remision.paciente_id, 'tipo:', typeof remision.paciente_id);
-      const { data: pacienteData, error: pacienteError } = await supabase
-        .from('pacientes')
-        .select('nombres, apellidos, edad, sexo')
-        .eq('id', Number(remision.paciente_id))
-        .single();
+      let pacienteData: any;
+      let medicoRemitenteData: any;
+      let medicoRemitidoData: any;
+      let especialidadData: any;
 
-      if (pacienteError) {
-        throw new Error(`Error obteniendo datos del paciente: ${pacienteError.message}`);
-      }
+      if (USE_POSTGRES) {
+        const client = await postgresPool.connect();
+        try {
+          // Obtener datos del paciente
+          console.log('🔍 Buscando paciente con ID:', remision.paciente_id, 'tipo:', typeof remision.paciente_id);
+          const pacienteResult = await client.query(
+            'SELECT nombres, apellidos, edad, sexo FROM pacientes WHERE id = $1',
+            [Number(remision.paciente_id)]
+          );
+          if (pacienteResult.rows.length === 0) {
+            throw new Error('Paciente no encontrado');
+          }
+          pacienteData = pacienteResult.rows[0];
 
-      // Obtener datos del médico remitente
-      const { data: medicoRemitenteData, error: medicoRemitenteError } = await supabase
-        .from('medicos')
-        .select('nombres, apellidos, email, especialidad_id')
-        .eq('id', remision.medico_remitente_id)
-        .single();
+          // Obtener datos del médico remitente
+          const medicoRemitenteResult = await client.query(
+            'SELECT nombres, apellidos, email, especialidad_id FROM medicos WHERE id = $1',
+            [remision.medico_remitente_id]
+          );
+          if (medicoRemitenteResult.rows.length === 0) {
+            throw new Error('Médico remitente no encontrado');
+          }
+          medicoRemitenteData = medicoRemitenteResult.rows[0];
 
-      if (medicoRemitenteError) {
-        throw new Error(`Error obteniendo datos del médico remitente: ${medicoRemitenteError.message}`);
-      }
+          // Obtener datos del médico remitido
+          const medicoRemitidoResult = await client.query(
+            'SELECT nombres, apellidos, email FROM medicos WHERE id = $1',
+            [remision.medico_remitido_id]
+          );
+          if (medicoRemitidoResult.rows.length === 0) {
+            throw new Error('Médico remitido no encontrado');
+          }
+          medicoRemitidoData = medicoRemitidoResult.rows[0];
 
-      // Obtener datos del médico remitido
-      const { data: medicoRemitidoData, error: medicoRemitidoError } = await supabase
-        .from('medicos')
-        .select('nombres, apellidos, email')
-        .eq('id', remision.medico_remitido_id)
-        .single();
+          // Obtener especialidad del médico remitente
+          if (medicoRemitenteData.especialidad_id) {
+            const especialidadResult = await client.query(
+              'SELECT nombre_especialidad FROM especialidades WHERE id = $1',
+              [medicoRemitenteData.especialidad_id]
+            );
+            if (especialidadResult.rows.length > 0) {
+              especialidadData = especialidadResult.rows[0];
+            } else {
+              console.warn('⚠️ No se pudo obtener la especialidad del médico remitente');
+            }
+          }
+        } finally {
+          client.release();
+        }
+      } else {
+        // Obtener datos del paciente
+        console.log('🔍 Buscando paciente con ID:', remision.paciente_id, 'tipo:', typeof remision.paciente_id);
+        const { data: pacienteDataSupabase, error: pacienteError } = await supabase
+          .from('pacientes')
+          .select('nombres, apellidos, edad, sexo')
+          .eq('id', Number(remision.paciente_id))
+          .single();
 
-      if (medicoRemitidoError) {
-        throw new Error(`Error obteniendo datos del médico remitido: ${medicoRemitidoError.message}`);
-      }
+        if (pacienteError) {
+          throw new Error(`Error obteniendo datos del paciente: ${pacienteError.message}`);
+        }
+        pacienteData = pacienteDataSupabase;
 
-      // Obtener especialidad del médico remitente
-      const { data: especialidadData, error: especialidadError } = await supabase
-        .from('especialidades')
-        .select('nombre_especialidad')
-        .eq('id', medicoRemitenteData.especialidad_id)
-        .single();
+        // Obtener datos del médico remitente
+        const { data: medicoRemitenteDataSupabase, error: medicoRemitenteError } = await supabase
+          .from('medicos')
+          .select('nombres, apellidos, email, especialidad_id')
+          .eq('id', remision.medico_remitente_id)
+          .single();
 
-      if (especialidadError) {
-        console.warn('⚠️ No se pudo obtener la especialidad del médico remitente');
+        if (medicoRemitenteError) {
+          throw new Error(`Error obteniendo datos del médico remitente: ${medicoRemitenteError.message}`);
+        }
+        medicoRemitenteData = medicoRemitenteDataSupabase;
+
+        // Obtener datos del médico remitido
+        const { data: medicoRemitidoDataSupabase, error: medicoRemitidoError } = await supabase
+          .from('medicos')
+          .select('nombres, apellidos, email')
+          .eq('id', remision.medico_remitido_id)
+          .single();
+
+        if (medicoRemitidoError) {
+          throw new Error(`Error obteniendo datos del médico remitido: ${medicoRemitidoError.message}`);
+        }
+        medicoRemitidoData = medicoRemitidoDataSupabase;
+
+        // Obtener especialidad del médico remitente
+        const { data: especialidadDataSupabase, error: especialidadError } = await supabase
+          .from('especialidades')
+          .select('nombre_especialidad')
+          .eq('id', medicoRemitenteData.especialidad_id)
+          .single();
+
+        if (especialidadError) {
+          console.warn('⚠️ No se pudo obtener la especialidad del médico remitente');
+        } else {
+          especialidadData = especialidadDataSupabase;
+        }
       }
 
       // Preparar datos para el email
@@ -314,36 +377,74 @@ export class RemisionService {
     try {
       console.log('🔍 Creando consulta desde remisión:', remision.id);
 
+      // Obtener clinica_alias de las variables de entorno
+      const clinicaAlias = process.env['CLINICA_ALIAS'] || 'demomed';
+
       // Preparar datos de la consulta
-             const consultaData = {
-               paciente_id: remision.paciente_id,
-               medico_id: remision.medico_remitido_id,
-               medico_remitente_id: remision.medico_remitente_id,
-               motivo_consulta: remision.motivo_remision,
-               tipo_consulta: 'seguimiento' as const,
-               estado_consulta: 'por_agendar' as const,
-               fecha_pautada: new Date().toISOString().split('T')[0], // Fecha actual
-               hora_pautada: '00:00:00', // Hora por defecto en lugar de NULL
-               duracion_estimada: 30,
-               prioridad: 'normal' as const,
-               observaciones: `Consulta generada automáticamente por remisión. ${remision.observaciones || ''}`,
-               recordatorio_enviado: false
-             };
+      const consultaData = {
+        paciente_id: remision.paciente_id,
+        medico_id: remision.medico_remitido_id,
+        medico_remitente_id: remision.medico_remitente_id,
+        motivo_consulta: remision.motivo_remision,
+        tipo_consulta: 'seguimiento' as const,
+        estado_consulta: 'por_agendar' as const,
+        fecha_pautada: new Date().toISOString().split('T')[0], // Fecha actual
+        hora_pautada: '00:00:00', // Hora por defecto en lugar de NULL
+        duracion_estimada: 30,
+        prioridad: 'normal' as const,
+        observaciones: `Consulta generada automáticamente por remisión. ${remision.observaciones || ''}`,
+        recordatorio_enviado: false,
+        clinica_alias: clinicaAlias
+      };
 
       console.log('🔍 Datos de consulta a crear:', consultaData);
 
-      // Crear la consulta en la base de datos
-      const { data: consulta, error } = await supabase
-        .from('consultas_pacientes')
-        .insert([consultaData])
-        .select()
-        .single();
+      if (USE_POSTGRES) {
+        const client = await postgresPool.connect();
+        try {
+          const insertQuery = `
+            INSERT INTO consultas_pacientes (
+              paciente_id, medico_id, medico_remitente_id, motivo_consulta,
+              tipo_consulta, estado_consulta, fecha_pautada, hora_pautada,
+              duracion_estimada, prioridad, observaciones, recordatorio_enviado, clinica_alias
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            RETURNING id
+          `;
+          
+          const result = await client.query(insertQuery, [
+            consultaData.paciente_id,
+            consultaData.medico_id,
+            consultaData.medico_remitente_id,
+            consultaData.motivo_consulta,
+            consultaData.tipo_consulta,
+            consultaData.estado_consulta,
+            consultaData.fecha_pautada,
+            consultaData.hora_pautada,
+            consultaData.duracion_estimada,
+            consultaData.prioridad,
+            consultaData.observaciones,
+            consultaData.recordatorio_enviado,
+            consultaData.clinica_alias
+          ]);
 
-      if (error) {
-        throw new Error(`Error creando consulta: ${error.message}`);
+          console.log('✅ Consulta creada exitosamente:', result.rows[0].id);
+        } finally {
+          client.release();
+        }
+      } else {
+        // Crear la consulta en la base de datos
+        const { data: consulta, error } = await supabase
+          .from('consultas_pacientes')
+          .insert([consultaData])
+          .select()
+          .single();
+
+        if (error) {
+          throw new Error(`Error creando consulta: ${error.message}`);
+        }
+
+        console.log('✅ Consulta creada exitosamente:', consulta.id);
       }
-
-      console.log('✅ Consulta creada exitosamente:', consulta.id);
     } catch (error) {
       console.error('❌ Error en createConsultaFromRemision:', error);
       throw error;

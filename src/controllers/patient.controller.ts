@@ -1,7 +1,8 @@
 import { Request, Response } from 'express';
 import { PatientService } from '../services/patient.service.js';
 import { ApiResponse } from '../types/index.js';
-import { supabase } from '../config/database.js';
+import { supabase, postgresPool } from '../config/database.js';
+import { USE_POSTGRES } from '../config/database-config.js';
 
 interface AuthenticatedRequest extends Request {
   user?: {
@@ -252,21 +253,43 @@ export class PatientController {
         return;
       }
       
-      // Verificar si el paciente tiene consultas
-      const { count, error } = await supabase
-        .from('consultas_pacientes')
-        .select('*', { count: 'exact', head: true })
-        .eq('paciente_id', id);
-      
-      if (error) {
-        throw new Error(error.message);
+      if (USE_POSTGRES) {
+        const client = await postgresPool.connect();
+        try {
+          const result = await client.query(
+            'SELECT COUNT(*) as count FROM consultas_pacientes WHERE paciente_id = $1',
+            [id]
+          );
+          
+          const count = parseInt(result.rows[0].count);
+          const response: ApiResponse = {
+            success: true,
+            data: { hasConsultations: count > 0 }
+          };
+          res.json(response);
+        } catch (dbError) {
+          console.error('❌ PostgreSQL error checking consultations:', dbError);
+          throw new Error(`Database error: ${(dbError as Error).message}`);
+        } finally {
+          client.release();
+        }
+      } else {
+        // Verificar si el paciente tiene consultas
+        const { count, error } = await supabase
+          .from('consultas_pacientes')
+          .select('*', { count: 'exact', head: true })
+          .eq('paciente_id', id);
+        
+        if (error) {
+          throw new Error(error.message);
+        }
+        
+        const response: ApiResponse = {
+          success: true,
+          data: { hasConsultations: (count || 0) > 0 }
+        };
+        res.json(response);
       }
-      
-      const response: ApiResponse = {
-        success: true,
-        data: { hasConsultations: (count || 0) > 0 }
-      };
-      res.json(response);
     } catch (error) {
       const response: ApiResponse = {
         success: false,
@@ -299,23 +322,53 @@ export class PatientController {
         return;
       }
       
-      // Actualizar el estado del paciente
-      const { data, error } = await supabase
-        .from('pacientes')
-        .update({ activo })
-        .eq('id', id)
-        .select()
-        .single();
-      
-      if (error) {
-        throw new Error(error.message);
+      if (USE_POSTGRES) {
+        const client = await postgresPool.connect();
+        try {
+          const result = await client.query(
+            'UPDATE pacientes SET activo = $1, fecha_actualizacion = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
+            [activo, id]
+          );
+          
+          if (result.rows.length === 0) {
+            const response: ApiResponse = {
+              success: false,
+              error: { message: 'Paciente no encontrado' }
+            };
+            res.status(404).json(response);
+            return;
+          }
+          
+          const response: ApiResponse = {
+            success: true,
+            data: result.rows[0]
+          };
+          res.json(response);
+        } catch (dbError) {
+          console.error('❌ PostgreSQL error updating patient status:', dbError);
+          throw new Error(`Database error: ${(dbError as Error).message}`);
+        } finally {
+          client.release();
+        }
+      } else {
+        // Actualizar el estado del paciente
+        const { data, error } = await supabase
+          .from('pacientes')
+          .update({ activo })
+          .eq('id', id)
+          .select()
+          .single();
+        
+        if (error) {
+          throw new Error(error.message);
+        }
+        
+        const response: ApiResponse = {
+          success: true,
+          data
+        };
+        res.json(response);
       }
-      
-      const response: ApiResponse = {
-        success: true,
-        data
-      };
-      res.json(response);
     } catch (error) {
       const response: ApiResponse = {
         success: false,
@@ -329,16 +382,26 @@ export class PatientController {
     try {
       const { name } = req.query;
       
-      if (!name) {
+      if (!name || typeof name !== 'string') {
         const response: ApiResponse = {
           success: false,
-          error: { message: 'Name parameter is required' }
+          error: { message: 'El parámetro "name" es requerido' }
         };
         res.status(400).json(response);
         return;
       }
 
-      const patients = await this.patientService.searchPatientsByName(name as string);
+      const trimmedName = name.trim();
+      if (trimmedName.length === 0) {
+        const response: ApiResponse = {
+          success: false,
+          error: { message: 'El término de búsqueda no puede estar vacío' }
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      const patients = await this.patientService.searchPatientsByName(trimmedName);
 
       const response: ApiResponse = {
         success: true,
@@ -346,11 +409,13 @@ export class PatientController {
       };
       res.json(response);
     } catch (error) {
+      console.error('❌ Error en searchPatients:', error);
+      const errorMessage = (error as Error).message;
       const response: ApiResponse = {
         success: false,
-        error: { message: (error as Error).message }
+        error: { message: errorMessage || 'Error al buscar pacientes' }
       };
-      res.status(400).json(response);
+      res.status(500).json(response);
     }
   }
 
@@ -591,11 +656,17 @@ export class PatientController {
     }
   }
 
-  async getPatientsByMedicoForStats(req: Request<{ medicoId?: string }, ApiResponse>, res: Response<ApiResponse>): Promise<void> {
+  async getPatientsByMedicoForStats(req: AuthenticatedRequest, res: Response<ApiResponse>): Promise<void> {
     try {
       const { medicoId } = req.params;
+      const user = req.user;
+      
+      console.log('📊 getPatientsByMedicoForStats - Request params:', { medicoId });
+      console.log('📊 getPatientsByMedicoForStats - User:', user ? { userId: user.userId, rol: user.rol, medico_id: user.medico_id } : 'No user');
       
       let id: number | null = null;
+      
+      // Si hay medicoId en params, usarlo
       if (medicoId) {
         id = parseInt(medicoId);
         if (isNaN(id) || id <= 0) {
@@ -606,8 +677,35 @@ export class PatientController {
           res.status(400).json(response);
           return;
         }
+      } else if (user) {
+        // Si no hay medicoId en params, usar el del usuario autenticado
+        if (user.rol === 'administrador' || user.rol === 'secretaria') {
+          // Admin y secretaria pueden ver todos los pacientes
+          id = null;
+        } else if (user.medico_id) {
+          // Médico con medico_id asignado
+          id = user.medico_id;
+        } else {
+          // Usuario sin medico_id asignado
+          console.warn('⚠️ User without medico_id:', user);
+          id = null;
+        }
       }
 
+      console.log('📊 getPatientsByMedicoForStats - Final medico_id:', id);
+      
+      // Validar que tenemos un medico_id válido o null (para admin y secretaria)
+      // Admin y secretaria pueden ver todos los pacientes (id = null)
+      // Médicos deben tener un medico_id asignado
+      if (id === null && user && user.rol !== 'administrador' && user.rol !== 'secretaria') {
+        const response: ApiResponse = {
+          success: false,
+          error: { message: 'No se pudo determinar el médico para obtener las estadísticas' }
+        };
+        res.status(400).json(response);
+        return;
+      }
+      
       const patients = await this.patientService.getPatientsByMedicoForStats(id);
 
       const response: ApiResponse = {
@@ -616,11 +714,14 @@ export class PatientController {
       };
       res.json(response);
     } catch (error) {
+      console.error('❌ getPatientsByMedicoForStats error:', error);
+      const errorMessage = (error as Error).message;
+      console.error('❌ Error details:', errorMessage);
       const response: ApiResponse = {
         success: false,
-        error: { message: (error as Error).message }
+        error: { message: errorMessage || 'Error al obtener estadísticas de pacientes' }
       };
-      res.status(400).json(response);
+      res.status(500).json(response);
     }
   }
 

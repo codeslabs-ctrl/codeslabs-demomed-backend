@@ -1,8 +1,9 @@
 import { Request, Response } from 'express';
-import { supabase } from '../config/database.js';
+import { supabase, postgresPool } from '../config/database.js';
 import { ApiResponse } from '../types/index.js';
 import { ExcelService } from '../services/excel.service.js';
 import { FinanzasPDFService } from '../services/finanzas-pdf.service.js';
+import { USE_POSTGRES } from '../config/database-config.js';
 
 export class FinanzasController {
   
@@ -11,95 +12,230 @@ export class FinanzasController {
     try {
       const { filtros, paginacion, moneda } = req.body;
 
-      // Construir query base
-      let query = supabase
-        .from('consultas_pacientes')
-        .select(`
-          id,
-          fecha_pautada,
-          hora_pautada,
-          estado_consulta,
-          fecha_pago,
-          metodo_pago,
-          observaciones_financieras,
-          paciente:pacientes!inner(
-            nombres,
-            apellidos,
-            cedula
-          ),
-          medico:medicos!fk_consultas_medico(
-            nombres,
-            apellidos,
-            especialidades!inner(
-              nombre_especialidad
-            )
-          ),
-          servicios_consulta(
-            id,
-            monto_pagado,
-            moneda_pago,
-            tipo_cambio,
-            observaciones,
-            servicios!inner(
-              id,
-              nombre_servicio,
-              monto_base,
-              moneda,
-              descripcion
-            )
-          )
-        `);
+      let consultas: any[] = [];
 
-      // Aplicar filtros
-      if (filtros.fecha_desde) {
-        query = query.gte('fecha_pautada', filtros.fecha_desde);
-      }
-      if (filtros.fecha_hasta) {
-        query = query.lte('fecha_pautada', filtros.fecha_hasta);
-      }
-      if (filtros.medico_id) {
-        query = query.eq('medico_id', filtros.medico_id);
-      }
-      if (filtros.paciente_cedula) {
-        // Filtrar por cédula del paciente usando la relación
-        query = query.eq('paciente:cedula', filtros.paciente_cedula);
-      }
-      if (filtros.estado_pago && filtros.estado_pago !== 'todos') {
-        if (filtros.estado_pago === 'pagado') {
-          query = query.not('fecha_pago', 'is', null);
-        } else if (filtros.estado_pago === 'pendiente') {
-          query = query.is('fecha_pago', null);
+      if (USE_POSTGRES) {
+        const client = await postgresPool.connect();
+        try {
+          // Construir query SQL con JOINs
+          let sqlQuery = `
+            SELECT 
+              c.id,
+              c.fecha_pautada,
+              c.hora_pautada,
+              c.estado_consulta,
+              c.fecha_pago,
+              c.metodo_pago,
+              c.observaciones_financieras,
+              p.nombres as paciente_nombres,
+              p.apellidos as paciente_apellidos,
+              p.cedula as paciente_cedula,
+              m.nombres as medico_nombres,
+              m.apellidos as medico_apellidos,
+              e.nombre_especialidad,
+              sc.id as servicio_consulta_id,
+              sc.monto_pagado,
+              sc.moneda_pago,
+              sc.tipo_cambio,
+              sc.observaciones as servicio_observaciones,
+              s.id as servicio_id,
+              s.nombre_servicio,
+              s.monto_base,
+              s.moneda as servicio_moneda,
+              s.descripcion as servicio_descripcion
+            FROM consultas_pacientes c
+            INNER JOIN pacientes p ON c.paciente_id = p.id
+            INNER JOIN medicos m ON c.medico_id = m.id
+            LEFT JOIN especialidades e ON m.especialidad_id = e.id
+            LEFT JOIN servicios_consulta sc ON c.id = sc.consulta_id
+            LEFT JOIN servicios s ON sc.servicio_id = s.id
+            WHERE 1=1
+          `;
+          
+          const params: any[] = [];
+          let paramIndex = 1;
+
+          // Aplicar filtros
+          if (filtros.fecha_desde) {
+            sqlQuery += ` AND c.fecha_pautada >= $${paramIndex}`;
+            params.push(filtros.fecha_desde);
+            paramIndex++;
+          }
+          if (filtros.fecha_hasta) {
+            sqlQuery += ` AND c.fecha_pautada <= $${paramIndex}`;
+            params.push(filtros.fecha_hasta);
+            paramIndex++;
+          }
+          if (filtros.medico_id) {
+            sqlQuery += ` AND c.medico_id = $${paramIndex}`;
+            params.push(filtros.medico_id);
+            paramIndex++;
+          }
+          if (filtros.paciente_cedula) {
+            sqlQuery += ` AND p.cedula = $${paramIndex}`;
+            params.push(filtros.paciente_cedula);
+            paramIndex++;
+          }
+          if (filtros.estado_pago && filtros.estado_pago !== 'todos') {
+            if (filtros.estado_pago === 'pagado') {
+              sqlQuery += ` AND c.fecha_pago IS NOT NULL`;
+            } else if (filtros.estado_pago === 'pendiente') {
+              sqlQuery += ` AND c.fecha_pago IS NULL`;
+            }
+          }
+
+          sqlQuery += ` ORDER BY c.fecha_pautada DESC, c.id`;
+
+          // Aplicar paginación
+          if (paginacion) {
+            const { pagina = 1, limite = 10 } = paginacion;
+            const offset = (pagina - 1) * limite;
+            sqlQuery += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+            params.push(limite, offset);
+          }
+
+          const result = await client.query(sqlQuery, params);
+          
+          // Agrupar resultados por consulta
+          const consultasMap = new Map();
+          result.rows.forEach((row: any) => {
+            if (!consultasMap.has(row.id)) {
+              consultasMap.set(row.id, {
+                id: row.id,
+                fecha_pautada: row.fecha_pautada,
+                hora_pautada: row.hora_pautada,
+                estado_consulta: row.estado_consulta,
+                fecha_pago: row.fecha_pago,
+                metodo_pago: row.metodo_pago,
+                observaciones_financieras: row.observaciones_financieras,
+                paciente: {
+                  nombres: row.paciente_nombres,
+                  apellidos: row.paciente_apellidos,
+                  cedula: row.paciente_cedula
+                },
+                medico: {
+                  nombres: row.medico_nombres,
+                  apellidos: row.medico_apellidos,
+                  especialidades: {
+                    nombre_especialidad: row.nombre_especialidad
+                  }
+                },
+                servicios_consulta: []
+              });
+            }
+            
+            // Agregar servicio si existe
+            if (row.servicio_consulta_id) {
+              const consulta = consultasMap.get(row.id);
+              consulta.servicios_consulta.push({
+                id: row.servicio_consulta_id,
+                monto_pagado: row.monto_pagado,
+                moneda_pago: row.moneda_pago,
+                tipo_cambio: row.tipo_cambio,
+                observaciones: row.servicio_observaciones,
+                servicios: {
+                  id: row.servicio_id,
+                  nombre_servicio: row.nombre_servicio,
+                  monto_base: row.monto_base,
+                  moneda: row.servicio_moneda,
+                  descripcion: row.servicio_descripcion
+                }
+              });
+            }
+          });
+
+          consultas = Array.from(consultasMap.values());
+        } finally {
+          client.release();
         }
-      }
+      } else {
+        // Construir query base (Supabase)
+        let query = supabase
+          .from('consultas_pacientes')
+          .select(`
+            id,
+            fecha_pautada,
+            hora_pautada,
+            estado_consulta,
+            fecha_pago,
+            metodo_pago,
+            observaciones_financieras,
+            paciente:pacientes!inner(
+              nombres,
+              apellidos,
+              cedula
+            ),
+            medico:medicos!fk_consultas_medico(
+              nombres,
+              apellidos,
+              especialidades!inner(
+                nombre_especialidad
+              )
+            ),
+            servicios_consulta(
+              id,
+              monto_pagado,
+              moneda_pago,
+              tipo_cambio,
+              observaciones,
+              servicios!inner(
+                id,
+                nombre_servicio,
+                monto_base,
+                moneda,
+                descripcion
+              )
+            )
+          `);
 
-      // Aplicar filtro por moneda - REMOVIDO TEMPORALMENTE
-      // El filtro de Supabase no funciona correctamente con relaciones
-      // Se aplicará después en la transformación de datos
+        // Aplicar filtros
+        if (filtros.fecha_desde) {
+          query = query.gte('fecha_pautada', filtros.fecha_desde);
+        }
+        if (filtros.fecha_hasta) {
+          query = query.lte('fecha_pautada', filtros.fecha_hasta);
+        }
+        if (filtros.medico_id) {
+          query = query.eq('medico_id', filtros.medico_id);
+        }
+        if (filtros.paciente_cedula) {
+          query = query.eq('paciente:cedula', filtros.paciente_cedula);
+        }
+        if (filtros.estado_pago && filtros.estado_pago !== 'todos') {
+          if (filtros.estado_pago === 'pagado') {
+            query = query.not('fecha_pago', 'is', null);
+          } else if (filtros.estado_pago === 'pendiente') {
+            query = query.is('fecha_pago', null);
+          }
+        }
 
-      // Aplicar paginación
-      if (paginacion) {
-        const { pagina = 1, limite = 10 } = paginacion;
-        const offset = (pagina - 1) * limite;
-        query = query.range(offset, offset + limite - 1);
-      }
+        // Aplicar paginación
+        if (paginacion) {
+          const { pagina = 1, limite = 10 } = paginacion;
+          const offset = (pagina - 1) * limite;
+          query = query.range(offset, offset + limite - 1);
+        }
 
-      const { data: consultas, error } = await query;
+        const { data, error } = await query;
 
-      if (error) {
-        console.error('Error fetching consultas financieras:', error);
-        res.status(500).json({
-          success: false,
-          error: { message: 'Error al obtener consultas financieras' }
-        } as ApiResponse<null>);
-        return;
+        if (error) {
+          console.error('Error fetching consultas financieras:', error);
+          res.status(500).json({
+            success: false,
+            error: { message: 'Error al obtener consultas financieras' }
+          } as ApiResponse<null>);
+          return;
+        }
+
+        consultas = data || [];
       }
 
       // Filtrar consultas por moneda si se especifica
       let consultasFiltradas = consultas || [];
       if (moneda && moneda !== 'TODAS') {
-        consultasFiltradas = consultasFiltradas.filter(consulta => {
+        consultasFiltradas = consultasFiltradas.filter((consulta: any) => {
           // Verificar si la consulta tiene al menos un servicio con la moneda especificada
-          const tieneServicioConMoneda = consulta.servicios_consulta?.some(servicio => 
+          const tieneServicioConMoneda = consulta.servicios_consulta?.some((servicio: any) => 
             servicio.moneda_pago === moneda
           );
           return tieneServicioConMoneda;
@@ -108,24 +244,24 @@ export class FinanzasController {
 
 
       // Transformar datos para el frontend
-      const consultasTransformadas = consultasFiltradas?.map(consulta => {
+      const consultasTransformadas = consultasFiltradas?.map((consulta: any) => {
         // Calcular total de la consulta sumando servicios (se actualizará después del filtro)
 
         // Filtrar servicios por moneda si se especifica
         let serviciosFiltrados = consulta.servicios_consulta || [];
         if (moneda && moneda !== 'TODAS') {
-          serviciosFiltrados = serviciosFiltrados.filter(servicio => 
+          serviciosFiltrados = serviciosFiltrados.filter((servicio: any) => 
             servicio.moneda_pago === moneda
           );
         }
 
         // Calcular total de la consulta sumando solo los servicios filtrados
-        const totalConsulta = serviciosFiltrados.reduce((sum, servicio) => {
+        const totalConsulta = serviciosFiltrados.reduce((sum: number, servicio: any) => {
           return sum + (servicio.monto_pagado || 0);
         }, 0);
 
         // Transformar servicios para el frontend
-        const serviciosTransformados = serviciosFiltrados.map(servicio => ({
+        const serviciosTransformados = serviciosFiltrados.map((servicio: any) => ({
           id: servicio.id,
           nombre_servicio: (servicio.servicios as any)?.nombre_servicio || '',
           descripcion: (servicio.servicios as any)?.descripcion || '',
@@ -140,7 +276,7 @@ export class FinanzasController {
         }));
 
         // Determinar la moneda principal de los servicios filtrados
-        const monedas = serviciosFiltrados.map(s => s.moneda_pago);
+        const monedas = serviciosFiltrados.map((s: any) => s.moneda_pago);
         const monedaPrincipal = monedas.length > 0 ? monedas[0] : 'COP';
 
         return {
@@ -164,13 +300,58 @@ export class FinanzasController {
       }) || [];
 
       // Obtener total de registros para paginación
-      let totalRegistros = 0;
-      if (paginacion) {
+      let totalRegistros = consultas.length;
+      if (paginacion && USE_POSTGRES) {
+        const client = await postgresPool.connect();
+        try {
+          let countQuery = `
+            SELECT COUNT(DISTINCT c.id)
+            FROM consultas_pacientes c
+            INNER JOIN pacientes p ON c.paciente_id = p.id
+            WHERE 1=1
+          `;
+          
+          const params: any[] = [];
+          let paramIndex = 1;
+
+          if (filtros.fecha_desde) {
+            countQuery += ` AND c.fecha_pautada >= $${paramIndex}`;
+            params.push(filtros.fecha_desde);
+            paramIndex++;
+          }
+          if (filtros.fecha_hasta) {
+            countQuery += ` AND c.fecha_pautada <= $${paramIndex}`;
+            params.push(filtros.fecha_hasta);
+            paramIndex++;
+          }
+          if (filtros.medico_id) {
+            countQuery += ` AND c.medico_id = $${paramIndex}`;
+            params.push(filtros.medico_id);
+            paramIndex++;
+          }
+          if (filtros.paciente_cedula) {
+            countQuery += ` AND p.cedula = $${paramIndex}`;
+            params.push(filtros.paciente_cedula);
+            paramIndex++;
+          }
+          if (filtros.estado_pago && filtros.estado_pago !== 'todos') {
+            if (filtros.estado_pago === 'pagado') {
+              countQuery += ` AND c.fecha_pago IS NOT NULL`;
+            } else if (filtros.estado_pago === 'pendiente') {
+              countQuery += ` AND c.fecha_pago IS NULL`;
+            }
+          }
+
+          const countResult = await client.query(countQuery, params);
+          totalRegistros = parseInt(countResult.rows[0].count) || 0;
+        } finally {
+          client.release();
+        }
+      } else if (paginacion && !USE_POSTGRES) {
         const countQuery = supabase
           .from('consultas_pacientes')
           .select('id', { count: 'exact', head: true });
         
-        // Aplicar los mismos filtros para el conteo
         if (filtros.fecha_desde) countQuery.gte('fecha_pautada', filtros.fecha_desde);
         if (filtros.fecha_hasta) countQuery.lte('fecha_pautada', filtros.fecha_hasta);
         if (filtros.medico_id) countQuery.eq('medico_id', filtros.medico_id);
@@ -182,24 +363,21 @@ export class FinanzasController {
             countQuery.is('fecha_pago', null);
           }
         }
-        // No aplicar filtro de moneda en el conteo, se aplicará después
         const { count } = await countQuery;
-        let totalRegistros = count || 0;
-        
-        // Aplicar filtro de moneda al conteo si es necesario
-        if (moneda && moneda !== 'TODAS') {
-          // Contar solo las consultas que tienen servicios con la moneda especificada
-          const consultasParaContar = consultas?.filter(consulta => {
-            return consulta.servicios_consulta?.some(servicio => 
-              servicio.moneda_pago === moneda
-            );
-          }) || [];
-          totalRegistros = consultasParaContar.length;
-        }
-        
-        // Usar totalRegistros en la paginación
-        console.log('📊 Total registros calculado:', totalRegistros);
+        totalRegistros = count || 0;
       }
+      
+      // Aplicar filtro de moneda al conteo si es necesario
+      if (moneda && moneda !== 'TODAS') {
+        const consultasParaContar = consultas.filter(consulta => {
+          return consulta.servicios_consulta?.some((servicio: any) => 
+            servicio.moneda_pago === moneda
+          );
+        });
+        totalRegistros = consultasParaContar.length;
+      }
+      
+      console.log('📊 Total registros calculado:', totalRegistros);
 
       const paginacionInfo = paginacion ? {
         pagina_actual: paginacion.pagina || 1,
@@ -229,55 +407,133 @@ export class FinanzasController {
     try {
       const { filtros, moneda } = req.body;
 
-      // Construir query base para estadísticas
-      let baseQuery = supabase
-        .from('consultas_pacientes')
-        .select(`
-          id,
-          fecha_pago,
-          medico_id,
-          medico:medicos!fk_consultas_medico(
-            nombres,
-            apellidos,
-            especialidades!inner(
-              nombre_especialidad
+      let consultas: any[] = [];
+
+      if (USE_POSTGRES) {
+        const client = await postgresPool.connect();
+        try {
+          // Construir query SQL con JOINs para obtener datos necesarios
+          let sqlQuery = `
+            SELECT 
+              c.id,
+              c.fecha_pago,
+              m.nombres as medico_nombres,
+              m.apellidos as medico_apellidos,
+              e.nombre_especialidad,
+              sc.monto_pagado,
+              sc.moneda_pago
+            FROM consultas_pacientes c
+            INNER JOIN medicos m ON c.medico_id = m.id
+            LEFT JOIN especialidades e ON m.especialidad_id = e.id
+            LEFT JOIN servicios_consulta sc ON c.id = sc.consulta_id
+            WHERE 1=1
+          `;
+          
+          const params: any[] = [];
+          let paramIndex = 1;
+
+          // Aplicar filtros de fecha
+          if (filtros.fecha_desde) {
+            sqlQuery += ` AND c.fecha_pautada >= $${paramIndex}`;
+            params.push(filtros.fecha_desde);
+            paramIndex++;
+          }
+          if (filtros.fecha_hasta) {
+            sqlQuery += ` AND c.fecha_pautada <= $${paramIndex}`;
+            params.push(filtros.fecha_hasta);
+            paramIndex++;
+          }
+          if (filtros.medico_id) {
+            sqlQuery += ` AND c.medico_id = $${paramIndex}`;
+            params.push(filtros.medico_id);
+            paramIndex++;
+          }
+
+          const result = await client.query(sqlQuery, params);
+          
+          // Agrupar resultados por consulta
+          const consultasMap = new Map();
+          result.rows.forEach((row: any) => {
+            if (!consultasMap.has(row.id)) {
+              consultasMap.set(row.id, {
+                id: row.id,
+                fecha_pago: row.fecha_pago,
+                medico: {
+                  nombres: row.medico_nombres,
+                  apellidos: row.medico_apellidos,
+                  especialidades: {
+                    nombre_especialidad: row.nombre_especialidad
+                  }
+                },
+                servicios_consulta: []
+              });
+            }
+            
+            // Agregar servicio si existe
+            if (row.monto_pagado !== null) {
+              const consulta = consultasMap.get(row.id);
+              consulta.servicios_consulta.push({
+                monto_pagado: row.monto_pagado,
+                moneda_pago: row.moneda_pago
+              });
+            }
+          });
+
+          consultas = Array.from(consultasMap.values());
+        } finally {
+          client.release();
+        }
+      } else {
+        // Construir query base para estadísticas (Supabase)
+        let baseQuery = supabase
+          .from('consultas_pacientes')
+          .select(`
+            id,
+            fecha_pago,
+            medico_id,
+            medico:medicos!fk_consultas_medico(
+              nombres,
+              apellidos,
+              especialidades!inner(
+                nombre_especialidad
+              )
+            ),
+            servicios_consulta(
+              monto_pagado,
+              moneda_pago
             )
-          ),
-          servicios_consulta(
-            monto_pagado,
-            moneda_pago
-          )
-        `);
+          `);
 
-      // Aplicar filtros de fecha
-      if (filtros.fecha_desde) {
-        baseQuery = baseQuery.gte('fecha_pautada', filtros.fecha_desde);
-      }
-      if (filtros.fecha_hasta) {
-        baseQuery = baseQuery.lte('fecha_pautada', filtros.fecha_hasta);
-      }
-      if (filtros.medico_id) {
-        baseQuery = baseQuery.eq('medico_id', filtros.medico_id);
-      }
+        // Aplicar filtros de fecha
+        if (filtros.fecha_desde) {
+          baseQuery = baseQuery.gte('fecha_pautada', filtros.fecha_desde);
+        }
+        if (filtros.fecha_hasta) {
+          baseQuery = baseQuery.lte('fecha_pautada', filtros.fecha_hasta);
+        }
+        if (filtros.medico_id) {
+          baseQuery = baseQuery.eq('medico_id', filtros.medico_id);
+        }
 
-      // No aplicar filtro de moneda directamente en Supabase para el resumen
-      // Se aplicará post-query como en getConsultasFinancieras
-      const { data: consultas, error } = await baseQuery;
+        const { data, error } = await baseQuery;
 
-      if (error) {
-        console.error('Error fetching resumen:', error);
-        res.status(500).json({
-          success: false,
-          error: { message: 'Error al obtener resumen financiero' }
-        } as ApiResponse<null>);
-        return;
+        if (error) {
+          console.error('Error fetching resumen:', error);
+          res.status(500).json({
+            success: false,
+            error: { message: 'Error al obtener resumen financiero' }
+          } as ApiResponse<null>);
+          return;
+        }
+
+        consultas = data || [];
       }
 
       // Aplicar filtro de moneda post-query
       let consultasFiltradas = consultas || [];
       if (moneda && moneda !== 'TODAS') {
-        consultasFiltradas = consultas?.filter(consulta => 
-          consulta.servicios_consulta?.some(servicio => servicio.moneda_pago === moneda)
+        consultasFiltradas = consultas?.filter((consulta: any) => 
+          consulta.servicios_consulta?.some((servicio: any) => servicio.moneda_pago === moneda)
         ) || [];
       }
 
@@ -285,8 +541,8 @@ export class FinanzasController {
       const totalConsultas = consultasFiltradas.length;
       
       // Calcular total de ingresos sumando servicios (solo de la moneda filtrada)
-      const totalIngresos = consultasFiltradas.reduce((sum, consulta) => {
-        const totalConsulta = consulta.servicios_consulta?.reduce((servicioSum, servicio) => {
+      const totalIngresos = consultasFiltradas.reduce((sum: number, consulta: any) => {
+        const totalConsulta = consulta.servicios_consulta?.reduce((servicioSum: number, servicio: any) => {
           // Solo sumar servicios de la moneda seleccionada
           if (moneda && moneda !== 'TODAS' && servicio.moneda_pago !== moneda) {
             return servicioSum;
@@ -296,14 +552,14 @@ export class FinanzasController {
         return sum + totalConsulta;
       }, 0);
       
-      const consultasPagadas = consultasFiltradas.filter(c => c.fecha_pago).length;
+      const consultasPagadas = consultasFiltradas.filter((c: any) => c.fecha_pago).length;
       const consultasPendientes = totalConsultas - consultasPagadas;
 
       // Calcular totales por especialidad
       const totalPorEspecialidad: { [key: string]: number } = {};
-      consultasFiltradas.forEach(consulta => {
+      consultasFiltradas.forEach((consulta: any) => {
         const especialidad = (consulta.medico as any)?.especialidades?.nombre_especialidad || 'Sin especialidad';
-        const totalConsulta = consulta.servicios_consulta?.reduce((sum, servicio) => {
+        const totalConsulta = consulta.servicios_consulta?.reduce((sum: number, servicio: any) => {
           // Solo sumar servicios de la moneda seleccionada
           if (moneda && moneda !== 'TODAS' && servicio.moneda_pago !== moneda) {
             return sum;
@@ -315,9 +571,9 @@ export class FinanzasController {
 
       // Calcular totales por médico
       const totalPorMedico: { [key: string]: number } = {};
-      consultasFiltradas.forEach(consulta => {
+      consultasFiltradas.forEach((consulta: any) => {
         const medico = `${(consulta.medico as any)?.nombres || ''} ${(consulta.medico as any)?.apellidos || ''}`.trim() || 'Sin médico';
-        const totalConsulta = consulta.servicios_consulta?.reduce((sum, servicio) => {
+        const totalConsulta = consulta.servicios_consulta?.reduce((sum: number, servicio: any) => {
           // Solo sumar servicios de la moneda seleccionada
           if (moneda && moneda !== 'TODAS' && servicio.moneda_pago !== moneda) {
             return sum;
@@ -329,18 +585,18 @@ export class FinanzasController {
 
       // Calcular estadísticas por moneda
       const estadisticasPorMoneda: { [key: string]: any } = {};
-      const monedas = [...new Set(consultas?.flatMap(c => 
-        c.servicios_consulta?.map(s => s.moneda_pago).filter(Boolean) || []
+      const monedas = [...new Set(consultas?.flatMap((c: any) => 
+        c.servicios_consulta?.map((s: any) => s.moneda_pago).filter(Boolean) || []
       ) || [])];
 
       monedas.forEach(monedaItem => {
-        const consultasMoneda = consultas?.filter(consulta => 
-          consulta.servicios_consulta?.some(servicio => servicio.moneda_pago === monedaItem)
+        const consultasMoneda = consultas?.filter((consulta: any) => 
+          consulta.servicios_consulta?.some((servicio: any) => servicio.moneda_pago === monedaItem)
         ) || [];
 
         const totalConsultasMoneda = consultasMoneda.length;
-        const totalIngresosMoneda = consultasMoneda.reduce((sum, consulta) => {
-          const totalConsulta = consulta.servicios_consulta?.reduce((servicioSum, servicio) => {
+        const totalIngresosMoneda = consultasMoneda.reduce((sum: number, consulta: any) => {
+          const totalConsulta = consulta.servicios_consulta?.reduce((servicioSum: number, servicio: any) => {
             return servicioSum + (servicio.moneda_pago === monedaItem ? (servicio.monto_pagado || 0) : 0);
           }, 0) || 0;
           return sum + totalConsulta;

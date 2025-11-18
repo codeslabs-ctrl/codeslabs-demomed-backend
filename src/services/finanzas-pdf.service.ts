@@ -1,4 +1,5 @@
 import puppeteer from 'puppeteer';
+import { config } from '../config/environment.js';
 
 export class FinanzasPDFService {
   /**
@@ -186,7 +187,7 @@ export class FinanzasPDFService {
       <body>
         <div class="header">
           <h1>Reporte Financiero</h1>
-          <h2>FemiMed - Sistema de Gestión Médica</h2>
+          <h2>${config.sistema.clinicaNombre}</h2>
         </div>
         
         <div class="info-section">
@@ -260,7 +261,7 @@ export class FinanzasPDFService {
         </div>
         
         <div class="footer">
-          <p>Reporte generado automáticamente por FemiMed</p>
+          <p>Reporte generado automáticamente por ${config.sistema.clinicaNombre}</p>
           <p>Fecha: ${new Date().toLocaleString('es-VE')}</p>
         </div>
       </body>

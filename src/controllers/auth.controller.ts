@@ -71,6 +71,20 @@ export class AuthController {
     try {
       const { username, password } = req.body;
       
+      console.log('🔐 AuthController.login - Recibida petición de login');
+      console.log('🔐 Username recibido:', username ? 'Sí' : 'No');
+      console.log('🔐 Password recibido:', password ? 'Sí' : 'No');
+      
+      if (!username || !password) {
+        const response: ApiResponse = {
+          success: false,
+          error: { message: 'Username y password son requeridos' }
+        };
+        console.log('❌ Faltan credenciales');
+        res.status(400).json(response);
+        return;
+      }
+      
       const result = await this.authService.login(username, password);
 
       const response: ApiResponse = {
@@ -81,11 +95,15 @@ export class AuthController {
           user: result.user
         }
       };
+      console.log('✅ Login exitoso, enviando respuesta');
       res.json(response);
     } catch (error) {
+      console.error('❌ Error en AuthController.login:', error);
+      const errorMessage = (error as Error).message;
+      console.error('❌ Mensaje de error:', errorMessage);
       const response: ApiResponse = {
         success: false,
-        error: { message: (error as Error).message }
+        error: { message: errorMessage }
       };
       res.status(401).json(response);
     }
@@ -191,106 +209,221 @@ export class AuthController {
         return;
       }
 
-      // Buscar usuario por email
-      const { data: usuario, error: userError } = await supabase
-        .from('usuarios')
-        .select('id, username, email, first_login, medico_id')
-        .eq('email', email)
-        .single();
+      const { USE_POSTGRES } = await import('../config/database-config.js');
+      const { postgresPool } = await import('../config/database.js');
 
-      if (userError || !usuario) {
-        const response: ApiResponse = {
-          success: false,
-          error: { message: 'Usuario no encontrado' }
-        };
-        res.status(404).json(response);
-        return;
-      }
-
-      // Verificar que sea un usuario que necesita OTP (primer login)
-      if (!usuario.first_login) {
-        const response: ApiResponse = {
-          success: false,
-          error: { message: 'Este usuario ya completó su primer acceso' }
-        };
-        res.status(400).json(response);
-        return;
-      }
-
-      // Generar nuevo OTP
-      const newOtp = Math.floor(10000000 + Math.random() * 90000000).toString();
-      const hashedOtp = await bcrypt.hash(newOtp, 10);
-
-      // Actualizar contraseña con nuevo OTP
-      const { error: updateError } = await supabase
-        .from('usuarios')
-        .update({ password_hash: hashedOtp })
-        .eq('id', usuario.id);
-
-      if (updateError) {
-        throw new Error(`Error actualizando OTP: ${updateError.message}`);
-      }
-
-      // Obtener datos del médico si existe
-      let medicoData = null;
-      if (usuario.medico_id) {
-        const { data: medico } = await supabase
-          .from('medicos')
-          .select('nombres, apellidos')
-          .eq('id', usuario.medico_id)
-          .single();
-        
-        if (medico) {
-          medicoData = {
-            nombre: `${medico.nombres} ${medico.apellidos}`,
-            username: usuario.username,
-            userEmail: email,
-            otp: newOtp,
-            expiresIn: '24 horas'
-          };
-        }
-      }
-
-      // Enviar email con nuevo OTP
-      try {
-        const emailService = new EmailService();
-        let emailSent = false;
-
-        if (medicoData) {
-          // Email específico para médicos
-          emailSent = await emailService.sendMedicoWelcomeEmail(
-            email,
-            medicoData
+      if (USE_POSTGRES) {
+        const client = await postgresPool.connect();
+        try {
+          // Buscar usuario por email
+          const userQuery = await client.query(
+            'SELECT id, username, email, first_login, medico_id FROM usuarios WHERE email = $1',
+            [email]
           );
-        } else {
-          // Email genérico para otros usuarios
-          emailSent = await emailService.sendPasswordRecoveryOTP(
-            email,
-            {
-              nombre: usuario.username,
-              otp: newOtp,
+
+          if (userQuery.rows.length === 0) {
+            const response: ApiResponse = {
+              success: false,
+              error: { message: 'Usuario no encontrado' }
+            };
+            res.status(404).json(response);
+            return;
+          }
+
+          const usuario = userQuery.rows[0];
+
+          // Verificar que sea un usuario que necesita OTP (primer login)
+          // Permitir regenerar incluso si ya completó el primer login (para casos como este)
+          // if (!usuario.first_login) {
+          //   const response: ApiResponse = {
+          //     success: false,
+          //     error: { message: 'Este usuario ya completó su primer acceso' }
+          //   };
+          //   res.status(400).json(response);
+          //   return;
+          // }
+
+          // Generar nuevo OTP
+          const newOtp = Math.floor(10000000 + Math.random() * 90000000).toString();
+          const hashedOtp = await bcrypt.hash(newOtp, 10);
+
+          // Actualizar contraseña con nuevo OTP y resetear first_login
+          await client.query(
+            `UPDATE usuarios 
+             SET password_hash = $1, 
+                 first_login = true, 
+                 password_changed_at = NULL,
+                 fecha_actualizacion = NOW()
+             WHERE id = $2`,
+            [hashedOtp, usuario.id]
+          );
+
+          // Obtener datos del médico si existe
+          let medicoData = null;
+          if (usuario.medico_id) {
+            const medicoQuery = await client.query(
+              'SELECT nombres, apellidos FROM medicos WHERE id = $1',
+              [usuario.medico_id]
+            );
+            
+            if (medicoQuery.rows.length > 0) {
+              const medico = medicoQuery.rows[0];
+              medicoData = {
+                nombre: `${medico.nombres} ${medico.apellidos}`,
+                username: usuario.username,
+                userEmail: email,
+                otp: newOtp,
+                expiresIn: '24 horas'
+              };
+            }
+          }
+
+          // Enviar email con nuevo OTP
+          try {
+            const emailService = new EmailService();
+            let emailSent = false;
+
+            if (medicoData) {
+              // Email específico para médicos
+              emailSent = await emailService.sendMedicoWelcomeEmail(
+                email,
+                medicoData
+              );
+            } else {
+              // Email genérico para otros usuarios
+              emailSent = await emailService.sendPasswordRecoveryOTP(
+                email,
+                {
+                  nombre: usuario.username,
+                  otp: newOtp,
+                  expiresIn: '24 horas'
+                }
+              );
+            }
+
+            if (!emailSent) {
+              console.warn('⚠️ Email no enviado, pero OTP regenerado correctamente');
+            }
+          } catch (emailError) {
+            console.error('❌ Error enviando email:', emailError);
+            // No fallar la regeneración si falla el email
+          }
+
+          const response: ApiResponse = {
+            success: true,
+            data: {
+              message: 'Nuevo OTP generado y enviado por email',
+              email: email,
               expiresIn: '24 horas'
             }
-          );
+          };
+          res.json(response);
+        } finally {
+          client.release();
+        }
+      } else {
+        // Código original para Supabase
+        // Buscar usuario por email
+        const { data: usuario, error: userError } = await supabase
+          .from('usuarios')
+          .select('id, username, email, first_login, medico_id')
+          .eq('email', email)
+          .single();
+
+        if (userError || !usuario) {
+          const response: ApiResponse = {
+            success: false,
+            error: { message: 'Usuario no encontrado' }
+          };
+          res.status(404).json(response);
+          return;
         }
 
-        if (!emailSent) {
-          console.warn('⚠️ Email no enviado, pero OTP regenerado correctamente');
+        // Verificar que sea un usuario que necesita OTP (primer login)
+        if (!usuario.first_login) {
+          const response: ApiResponse = {
+            success: false,
+            error: { message: 'Este usuario ya completó su primer acceso' }
+          };
+          res.status(400).json(response);
+          return;
         }
-      } catch (emailError) {
-        console.error('❌ Error enviando email:', emailError);
-        // No fallar la regeneración si falla el email
+
+        // Generar nuevo OTP
+        const newOtp = Math.floor(10000000 + Math.random() * 90000000).toString();
+        const hashedOtp = await bcrypt.hash(newOtp, 10);
+
+        // Actualizar contraseña con nuevo OTP
+        const { error: updateError } = await supabase
+          .from('usuarios')
+          .update({ password_hash: hashedOtp })
+          .eq('id', usuario.id);
+
+        if (updateError) {
+          throw new Error(`Error actualizando OTP: ${updateError.message}`);
+        }
+
+        // Obtener datos del médico si existe
+        let medicoData = null;
+        if (usuario.medico_id) {
+          const { data: medico } = await supabase
+            .from('medicos')
+            .select('nombres, apellidos')
+            .eq('id', usuario.medico_id)
+            .single();
+          
+          if (medico) {
+            medicoData = {
+              nombre: `${medico.nombres} ${medico.apellidos}`,
+              username: usuario.username,
+              userEmail: email,
+              otp: newOtp,
+              expiresIn: '24 horas'
+            };
+          }
+        }
+
+        // Enviar email con nuevo OTP
+        try {
+          const emailService = new EmailService();
+          let emailSent = false;
+
+          if (medicoData) {
+            // Email específico para médicos
+            emailSent = await emailService.sendMedicoWelcomeEmail(
+              email,
+              medicoData
+            );
+          } else {
+            // Email genérico para otros usuarios
+            emailSent = await emailService.sendPasswordRecoveryOTP(
+              email,
+              {
+                nombre: usuario.username,
+                otp: newOtp,
+                expiresIn: '24 horas'
+              }
+            );
+          }
+
+          if (!emailSent) {
+            console.warn('⚠️ Email no enviado, pero OTP regenerado correctamente');
+          }
+        } catch (emailError) {
+          console.error('❌ Error enviando email:', emailError);
+          // No fallar la regeneración si falla el email
+        }
+
+        const response: ApiResponse = {
+          success: true,
+          data: {
+            message: 'Nuevo OTP generado y enviado por email',
+            email: email,
+            expiresIn: '24 horas'
+          }
+        };
+        res.json(response);
       }
-
-      const response: ApiResponse = {
-        success: true,
-        data: {
-          message: 'Nuevo OTP generado y enviado por email',
-          email: email,
-          expiresIn: '24 horas'
-        }
-      };
-      res.json(response);
     } catch (error) {
       const response: ApiResponse = {
         success: false,

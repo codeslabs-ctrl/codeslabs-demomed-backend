@@ -1,4 +1,5 @@
-import { supabase } from '../config/database';
+import { supabase, postgresPool } from '../config/database';
+import { USE_POSTGRES } from '../config/database-config.js';
 
 export interface InformeMedico {
   id?: number;
@@ -150,47 +151,134 @@ export class InformeMedicoService {
     busqueda?: string;
   }): Promise<InformeMedico[]> {
     try {
-      let query = supabase
-        .from('informes_medicos')
-        .select(`
-          *,
-          pacientes (id, nombres, apellidos, cedula),
-          medicos (id, nombres, apellidos, especialidad_id),
-          templates_informes (id, nombre, descripcion)
-        `)
-        .eq('clinica_alias', filtros.clinica_alias)
-        .order('fecha_creacion', { ascending: false });
+      if (USE_POSTGRES) {
+        const client = await postgresPool.connect();
+        try {
+          let sqlQuery = `
+            SELECT 
+              im.*,
+              json_build_object(
+                'id', p.id,
+                'nombres', p.nombres,
+                'apellidos', p.apellidos,
+                'cedula', p.cedula
+              ) as pacientes,
+              json_build_object(
+                'id', m.id,
+                'nombres', m.nombres,
+                'apellidos', m.apellidos,
+                'especialidad_id', m.especialidad_id
+              ) as medicos,
+              json_build_object(
+                'id', t.id,
+                'nombre', t.nombre,
+                'descripcion', t.descripcion
+              ) as templates_informes
+            FROM informes_medicos im
+            LEFT JOIN pacientes p ON im.paciente_id = p.id
+            LEFT JOIN medicos m ON im.medico_id = m.id
+            LEFT JOIN templates_informes t ON im.template_id = t.id
+            WHERE im.clinica_alias = $1
+          `;
+          
+          const params: any[] = [filtros.clinica_alias];
+          let paramIndex = 2;
 
-      // Aplicar filtros
-      if (filtros.medico_id) {
-        query = query.eq('medico_id', filtros.medico_id);
-      }
-      if (filtros.paciente_id) {
-        query = query.eq('paciente_id', filtros.paciente_id);
-      }
-      if (filtros.estado) {
-        query = query.eq('estado', filtros.estado);
-      }
-      if (filtros.tipo_informe) {
-        query = query.eq('tipo_informe', filtros.tipo_informe);
-      }
-      if (filtros.fecha_desde) {
-        query = query.gte('fecha_emision', filtros.fecha_desde);
-      }
-      if (filtros.fecha_hasta) {
-        query = query.lte('fecha_emision', filtros.fecha_hasta);
-      }
-      if (filtros.busqueda) {
-        query = query.or(`titulo.ilike.%${filtros.busqueda}%,numero_informe.ilike.%${filtros.busqueda}%`);
-      }
+          // Aplicar filtros
+          if (filtros.medico_id) {
+            sqlQuery += ` AND im.medico_id = $${paramIndex}`;
+            params.push(filtros.medico_id);
+            paramIndex++;
+          }
+          if (filtros.paciente_id) {
+            sqlQuery += ` AND im.paciente_id = $${paramIndex}`;
+            params.push(filtros.paciente_id);
+            paramIndex++;
+          }
+          if (filtros.estado) {
+            sqlQuery += ` AND im.estado = $${paramIndex}`;
+            params.push(filtros.estado);
+            paramIndex++;
+          }
+          if (filtros.tipo_informe) {
+            sqlQuery += ` AND im.tipo_informe = $${paramIndex}`;
+            params.push(filtros.tipo_informe);
+            paramIndex++;
+          }
+          if (filtros.fecha_desde) {
+            sqlQuery += ` AND im.fecha_emision >= $${paramIndex}`;
+            params.push(filtros.fecha_desde);
+            paramIndex++;
+          }
+          if (filtros.fecha_hasta) {
+            sqlQuery += ` AND im.fecha_emision <= $${paramIndex}`;
+            params.push(filtros.fecha_hasta);
+            paramIndex++;
+          }
+          if (filtros.busqueda) {
+            sqlQuery += ` AND (im.titulo ILIKE $${paramIndex} OR im.numero_informe ILIKE $${paramIndex})`;
+            params.push(`%${filtros.busqueda}%`);
+            paramIndex++;
+          }
 
-      const { data, error } = await query;
+          sqlQuery += ` ORDER BY im.fecha_creacion DESC`;
 
-      if (error) {
-        throw new Error(`Error obteniendo informes: ${error.message}`);
+          const result = await client.query(sqlQuery, params);
+          
+          // Transformar los resultados para que coincidan con el formato esperado
+          return result.rows.map((row: any) => ({
+            ...row,
+            pacientes: row.pacientes,
+            medicos: row.medicos,
+            templates_informes: row.templates_informes
+          }));
+        } finally {
+          client.release();
+        }
+      } else {
+        // Código original de Supabase
+        let query = supabase
+          .from('informes_medicos')
+          .select(`
+            *,
+            pacientes (id, nombres, apellidos, cedula),
+            medicos (id, nombres, apellidos, especialidad_id),
+            templates_informes (id, nombre, descripcion)
+          `)
+          .eq('clinica_alias', filtros.clinica_alias)
+          .order('fecha_creacion', { ascending: false });
+
+        // Aplicar filtros
+        if (filtros.medico_id) {
+          query = query.eq('medico_id', filtros.medico_id);
+        }
+        if (filtros.paciente_id) {
+          query = query.eq('paciente_id', filtros.paciente_id);
+        }
+        if (filtros.estado) {
+          query = query.eq('estado', filtros.estado);
+        }
+        if (filtros.tipo_informe) {
+          query = query.eq('tipo_informe', filtros.tipo_informe);
+        }
+        if (filtros.fecha_desde) {
+          query = query.gte('fecha_emision', filtros.fecha_desde);
+        }
+        if (filtros.fecha_hasta) {
+          query = query.lte('fecha_emision', filtros.fecha_hasta);
+        }
+        if (filtros.busqueda) {
+          query = query.or(`titulo.ilike.%${filtros.busqueda}%,numero_informe.ilike.%${filtros.busqueda}%`);
+        }
+
+        const { data, error } = await query;
+
+        if (error) {
+          throw new Error(`Error obteniendo informes: ${error.message}`);
+        }
+
+        return data || [];
       }
-
-      return data || [];
     } catch (error) {
       console.error('Error en obtenerInformes:', error);
       throw error;

@@ -249,11 +249,24 @@ export class HistoricoController {
       const { id } = req.params;
       const updateData = req.body;
 
+      console.log('🔍 HistoricoController.updateHistorico - ID:', id);
+      console.log('🔍 HistoricoController.updateHistorico - updateData:', updateData);
+
       const historicoId = parseInt(id);
       if (isNaN(historicoId)) {
         const response: ApiResponse = {
           success: false,
-          error: { message: 'Invalid historico ID' }
+          error: { message: 'ID de historia médica inválido' }
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      // Validar que hay datos para actualizar
+      if (!updateData || Object.keys(updateData).length === 0) {
+        const response: ApiResponse = {
+          success: false,
+          error: { message: 'No se proporcionaron datos para actualizar' }
         };
         res.status(400).json(response);
         return;
@@ -267,9 +280,11 @@ export class HistoricoController {
       };
       res.json(response);
     } catch (error) {
+      console.error('❌ HistoricoController.updateHistorico - Error:', error);
+      const errorMessage = (error as Error).message;
       const response: ApiResponse = {
         success: false,
-        error: { message: (error as Error).message }
+        error: { message: errorMessage || 'Error al actualizar la historia médica' }
       };
       res.status(400).json(response);
     }

@@ -56,7 +56,7 @@ router.post('/', authenticateToken, ConsultaController.createConsulta);
 
 router.put('/:id', authenticateToken, ConsultaController.updateConsulta);
 router.put('/:id/cancelar', authenticateToken, ConsultaController.cancelarConsulta);
-router.put('/:id/finalizar', authenticateToken, ConsultaController.finalizarConsulta);
+router.put('/:id/finalizar', ...secretariaSecurityMiddleware, ConsultaController.finalizarConsulta);
 router.put('/:id/reagendar', authenticateToken, ConsultaController.reagendarConsulta);
 
 router.delete('/:id', authenticateToken, ConsultaController.deleteConsulta);

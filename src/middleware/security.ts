@@ -17,10 +17,31 @@ declare global {
 // Headers de seguridad
 export const securityHeaders = helmet();
 
-// CORS configurado
+// CORS configurado para DemoMed
+const allowedOrigins = [
+  process.env['FRONTEND_URL'] || 'http://localhost:4200',
+  'https://demomed.codes-labs.com',
+  'https://www.demomed.codes-labs.com',
+  'http://localhost:4200' // Desarrollo
+].filter(Boolean); // Elimina valores undefined/null
+
 export const corsMiddleware = cors({
-  origin: process.env['FRONTEND_URL'] || 'http://localhost:4200',
-  credentials: true
+  origin: (origin, callback) => {
+    // Permitir requests sin origen (mobile apps, Postman, etc.)
+    if (!origin) {
+      return callback(null, true);
+    }
+    
+    // Verificar si el origen está permitido
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 });
 
 // Rate limiting general

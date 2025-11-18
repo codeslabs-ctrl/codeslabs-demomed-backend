@@ -484,11 +484,19 @@ export class PDFService {
     
     const configuraciones: { [key: string]: any } = {
       'femimed': {
-        nombre: 'FemiMed',
-        descripcion: 'Centro Médico Especializado',
+        nombre: process.env['CLINICA_NOMBRE'] || 'DemoMed',
+        descripcion: process.env['CLINICA_DESCRIPCION'] || 'Centro Médico Especializado',
         especialidad: 'Ginecología y Obstetricia',
         color: '#E91E63',
         logoPath: process.env['LOGO_PATH'] || './assets/logos/femimed/logo.svg',
+        logo: '' // Se llenará con base64
+      },
+      'demomed': {
+        nombre: process.env['CLINICA_NOMBRE'] || 'DemoMed',
+        descripcion: process.env['CLINICA_DESCRIPCION'] || 'Centro Médico de Demostración',
+        especialidad: 'Medicina General',
+        color: '#2196F3',
+        logoPath: process.env['LOGO_PATH'] || './assets/logos/clinica/logo.webp',
         logo: '' // Se llenará con base64
       },
       'clinica2': {

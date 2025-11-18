@@ -22,6 +22,7 @@ import finanzasRoutes from './finanzas.js';
 import firmasRoutes from './firmas.js';
 import importacionRoutes from './importacion.js';
 import { ApiResponse } from '../types/index.js';
+import { config } from '../config/environment.js';
 
 const router = express.Router();
 
@@ -30,7 +31,7 @@ router.get('/', (_req: Request, res: Response) => {
   const response: ApiResponse = {
     success: true,
     data: {
-      message: 'FemiMed API - Medical Management System',
+      message: `${config.sistema.clinicaNombre} API - Medical Management System`,
       version: '1.0.0',
       architecture: 'Service Layer Pattern',
           endpoints: {
