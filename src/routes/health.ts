@@ -15,7 +15,7 @@ router.get('/', async (_req: Request, res: Response<ApiResponse>) => {
       // Test PostgreSQL connection
       try {
         const client = await postgresPool.connect();
-        const result = await client.query('SELECT NOW() as current_time, version() as pg_version');
+        await client.query('SELECT NOW()');
         client.release();
         dbStatus = 'connected';
         dbType = 'PostgreSQL';
