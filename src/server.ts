@@ -63,7 +63,14 @@ const startServer = async (): Promise<void> => {
     app.listen(config.port, () => {
       console.log(`🚀 Server running on port ${config.port}`);
       console.log(`📊 Environment: ${config.nodeEnv}`);
-      console.log(`🔗 API Base URL: http://localhost:${config.port}/api/${config.api.version}`);
+      
+      // Mostrar URL apropiada según el entorno
+      if (config.nodeEnv === 'production') {
+        const productionUrl = process.env['API_URL'] || `https://api.demomed.codes-labs.com:${config.port}`;
+        console.log(`🔗 API Base URL: ${productionUrl}/api/${config.api.version}`);
+      } else {
+        console.log(`🔗 API Base URL: http://localhost:${config.port}/api/${config.api.version}`);
+      }
     });
   } catch (error) {
     console.error('❌ Failed to start server:', (error as Error).message);
