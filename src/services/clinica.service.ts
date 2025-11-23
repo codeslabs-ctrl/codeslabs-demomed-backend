@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { postgresPool } from '../config/database.js';
 import { getCurrentClinica } from '../middleware/clinica.middleware';
 
 export interface Clinica {
@@ -35,19 +35,21 @@ export class ClinicaService {
     try {
       const clinicaAlias = getCurrentClinica();
       
-      const { data, error } = await supabase
-        .from('clinicas')
-        .select('*')
-        .eq('alias', clinicaAlias)
-        .eq('activa', true)
-        .single();
+      const client = await postgresPool.connect();
+      try {
+        const result = await client.query(
+          'SELECT * FROM clinicas WHERE alias = $1 AND activa = true LIMIT 1',
+          [clinicaAlias]
+        );
 
-      if (error) {
-        console.error('Error obteniendo clínica actual:', error);
-        return null;
+        if (result.rows.length === 0) {
+          return null;
+        }
+
+        return result.rows[0];
+      } finally {
+        client.release();
       }
-
-      return data;
     } catch (error) {
       console.error('Error en getCurrentClinicaInfo:', error);
       return null;
@@ -61,28 +63,38 @@ export class ClinicaService {
     try {
       const clinicaAlias = getCurrentClinica();
       
-      const { data, error } = await supabase
-        .from('medicos_clinicas')
-        .select(`
-          *,
-          medicos (
-            id,
-            nombres,
-            apellidos,
-            email,
-            telefono,
-            especialidad_id
-          )
-        `)
-        .eq('clinica_alias', clinicaAlias)
-        .eq('activo', true);
+      const client = await postgresPool.connect();
+      try {
+        const result = await client.query(
+          `SELECT 
+            mc.*,
+            m.id as medico_id,
+            m.nombres,
+            m.apellidos,
+            m.email,
+            m.telefono,
+            m.especialidad_id
+          FROM medicos_clinicas mc
+          INNER JOIN medicos m ON mc.medico_id = m.id
+          WHERE mc.clinica_alias = $1 AND mc.activo = true`,
+          [clinicaAlias]
+        );
 
-      if (error) {
-        console.error('Error obteniendo médicos por clínica:', error);
-        return [];
+        // Formatear para compatibilidad con el código existente
+        return result.rows.map(row => ({
+          ...row,
+          medicos: {
+            id: row.medico_id,
+            nombres: row.nombres,
+            apellidos: row.apellidos,
+            email: row.email,
+            telefono: row.telefono,
+            especialidad_id: row.especialidad_id
+          }
+        }));
+      } finally {
+        client.release();
       }
-
-      return data || [];
     } catch (error) {
       console.error('Error en getMedicosByClinica:', error);
       return [];
@@ -96,25 +108,32 @@ export class ClinicaService {
     try {
       const clinicaAlias = getCurrentClinica();
       
-      const { data, error } = await supabase
-        .from('especialidades_clinicas')
-        .select(`
-          *,
-          especialidades (
-            id,
-            nombre_especialidad,
-            descripcion
-          )
-        `)
-        .eq('clinica_alias', clinicaAlias)
-        .eq('activa', true);
+      const client = await postgresPool.connect();
+      try {
+        const result = await client.query(
+          `SELECT 
+            ec.*,
+            e.id as especialidad_id,
+            e.nombre_especialidad,
+            e.descripcion
+          FROM especialidades_clinicas ec
+          INNER JOIN especialidades e ON ec.especialidad_id = e.id
+          WHERE ec.clinica_alias = $1 AND ec.activa = true`,
+          [clinicaAlias]
+        );
 
-      if (error) {
-        console.error('Error obteniendo especialidades por clínica:', error);
-        return [];
+        // Formatear para compatibilidad con el código existente
+        return result.rows.map(row => ({
+          ...row,
+          especialidades: {
+            id: row.especialidad_id,
+            nombre_especialidad: row.nombre_especialidad,
+            descripcion: row.descripcion
+          }
+        }));
+      } finally {
+        client.release();
       }
-
-      return data || [];
     } catch (error) {
       console.error('Error en getEspecialidadesByClinica:', error);
       return [];
@@ -128,20 +147,17 @@ export class ClinicaService {
     try {
       const clinicaAlias = getCurrentClinica();
       
-      const { data, error } = await supabase
-        .from('medicos_clinicas')
-        .select('id')
-        .eq('medico_id', medicoId)
-        .eq('clinica_alias', clinicaAlias)
-        .eq('activo', true)
-        .single();
+      const client = await postgresPool.connect();
+      try {
+        const result = await client.query(
+          'SELECT id FROM medicos_clinicas WHERE medico_id = $1 AND clinica_alias = $2 AND activo = true LIMIT 1',
+          [medicoId, clinicaAlias]
+        );
 
-      if (error) {
-        console.error('Error verificando médico-clínica:', error);
-        return false;
+        return result.rows.length > 0;
+      } finally {
+        client.release();
       }
-
-      return !!data;
     } catch (error) {
       console.error('Error en verifyMedicoClinica:', error);
       return false;
@@ -155,20 +171,17 @@ export class ClinicaService {
     try {
       const clinicaAlias = getCurrentClinica();
       
-      const { data, error } = await supabase
-        .from('especialidades_clinicas')
-        .select('id')
-        .eq('especialidad_id', especialidadId)
-        .eq('clinica_alias', clinicaAlias)
-        .eq('activa', true)
-        .single();
+      const client = await postgresPool.connect();
+      try {
+        const result = await client.query(
+          'SELECT id FROM especialidades_clinicas WHERE especialidad_id = $1 AND clinica_alias = $2 AND activo = true LIMIT 1',
+          [especialidadId, clinicaAlias]
+        );
 
-      if (error) {
-        console.error('Error verificando especialidad-clínica:', error);
-        return false;
+        return result.rows.length > 0;
+      } finally {
+        client.release();
       }
-
-      return !!data;
     } catch (error) {
       console.error('Error en verifyEspecialidadClinica:', error);
       return false;
@@ -182,20 +195,20 @@ export class ClinicaService {
     try {
       const clinicaAlias = getCurrentClinica();
       
-      const { error } = await supabase
-        .from('medicos_clinicas')
-        .insert({
-          medico_id: medicoId,
-          clinica_alias: clinicaAlias,
-          activo: true
-        });
+      const client = await postgresPool.connect();
+      try {
+        await client.query(
+          'INSERT INTO medicos_clinicas (medico_id, clinica_alias, activo) VALUES ($1, $2, true)',
+          [medicoId, clinicaAlias]
+        );
 
-      if (error) {
+        return true;
+      } catch (error) {
         console.error('Error asignando médico a clínica:', error);
         return false;
+      } finally {
+        client.release();
       }
-
-      return true;
     } catch (error) {
       console.error('Error en asignarMedicoClinica:', error);
       return false;
@@ -209,20 +222,20 @@ export class ClinicaService {
     try {
       const clinicaAlias = getCurrentClinica();
       
-      const { error } = await supabase
-        .from('especialidades_clinicas')
-        .insert({
-          especialidad_id: especialidadId,
-          clinica_alias: clinicaAlias,
-          activa: true
-        });
+      const client = await postgresPool.connect();
+      try {
+        await client.query(
+          'INSERT INTO especialidades_clinicas (especialidad_id, clinica_alias, activa) VALUES ($1, $2, true)',
+          [especialidadId, clinicaAlias]
+        );
 
-      if (error) {
+        return true;
+      } catch (error) {
         console.error('Error asignando especialidad a clínica:', error);
         return false;
+      } finally {
+        client.release();
       }
-
-      return true;
     } catch (error) {
       console.error('Error en asignarEspecialidadClinica:', error);
       return false;

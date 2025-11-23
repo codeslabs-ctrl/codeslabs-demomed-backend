@@ -1,7 +1,6 @@
 import { PatientRepository, PatientData, PatientRepositoryType } from '../repositories/patient.repository.js';
 import { PaginationInfo } from '../types/index.js';
-import { supabase, postgresPool } from '../config/database.js';
-import { USE_POSTGRES } from '../config/database-config.js';
+import { postgresPool } from '../config/database.js';
 
 export class PatientService {
   private patientRepository: InstanceType<PatientRepositoryType>;
@@ -33,53 +32,30 @@ export class PatientService {
       // Obtener la información médica más reciente del paciente
       let latestHistoric: any = null;
 
-      if (USE_POSTGRES) {
-        // PostgreSQL implementation
-        const client = await postgresPool.connect();
-        try {
-          const result = await client.query(
-            `SELECT motivo_consulta, diagnostico, conclusiones, plan
-             FROM historico_pacientes
-             WHERE paciente_id = $1
-             ORDER BY fecha_consulta DESC
-             LIMIT 1`,
-            [id]
-          );
+      // PostgreSQL implementation
+      const client = await postgresPool.connect();
+      try {
+        const result = await client.query(
+          `SELECT motivo_consulta, diagnostico, conclusiones, plan
+           FROM historico_pacientes
+           WHERE paciente_id = $1
+           ORDER BY fecha_consulta DESC
+           LIMIT 1`,
+          [id]
+        );
 
-          if (result.rows.length > 0) {
-            latestHistoric = result.rows[0];
-            console.log('🔍 Histórico médico encontrado (PostgreSQL):', latestHistoric);
-          } else {
-            console.log('🔍 No se encontró historial médico para el paciente:', id);
-          }
-        } catch (dbError) {
-          console.error('❌ Error obteniendo historico médico (PostgreSQL):', dbError);
-          // Si hay error, devolver solo los datos básicos del paciente
-          return patient;
-        } finally {
-          client.release();
+        if (result.rows.length > 0) {
+          latestHistoric = result.rows[0];
+          console.log('🔍 Histórico médico encontrado (PostgreSQL):', latestHistoric);
+        } else {
+          console.log('🔍 No se encontró historial médico para el paciente:', id);
         }
-      } else {
-        // Supabase implementation
-        const { data: historicoData, error: historicoError } = await supabase
-          .from('historico_pacientes')
-          .select('motivo_consulta, diagnostico, conclusiones, plan')
-          .eq('paciente_id', id)
-          .order('fecha_consulta', { ascending: false })
-          .limit(1);
-
-        console.log('🔍 Histórico médico consultado:', historicoData);
-        console.log('🔍 Error en histórico:', historicoError);
-
-        if (historicoError) {
-          console.error('❌ Error obteniendo historico médico:', historicoError);
-          // Si hay error, devolver solo los datos básicos del paciente
-          return patient;
-        }
-
-        if (historicoData && historicoData.length > 0) {
-          latestHistoric = historicoData[0];
-        }
+      } catch (dbError) {
+        console.error('❌ Error obteniendo historico médico (PostgreSQL):', dbError);
+        // Si hay error, devolver solo los datos básicos del paciente
+        return patient;
+      } finally {
+        client.release();
       }
 
       // Si se encontró información médica, agregarla al paciente
@@ -163,31 +139,19 @@ export class PatientService {
       // Validate cedula uniqueness
       if (patientData.cedula) {
         console.log('🔍 PatientService - Verificando unicidad de la cédula:', patientData.cedula);
-        if (USE_POSTGRES) {
-          const client = await postgresPool.connect();
-          try {
-            const result = await client.query(
-              'SELECT id FROM pacientes WHERE cedula = $1 LIMIT 1',
-              [patientData.cedula]
-            );
-            if (result.rows.length > 0) {
-              console.error('❌ PatientService - Cédula ya existe:', patientData.cedula);
-              throw new Error('La cédula ya está registrada en el sistema');
-            }
-          } finally {
-            client.release();
-          }
-        } else {
-          const { data: existingPatientByCedula } = await supabase
-            .from('pacientes')
-            .select('id')
-            .eq('cedula', patientData.cedula)
-            .single();
-
-          if (existingPatientByCedula) {
+        // PostgreSQL implementation
+        const client = await postgresPool.connect();
+        try {
+          const result = await client.query(
+            'SELECT id FROM pacientes WHERE cedula = $1 LIMIT 1',
+            [patientData.cedula]
+          );
+          if (result.rows.length > 0) {
             console.error('❌ PatientService - Cédula ya existe:', patientData.cedula);
             throw new Error('La cédula ya está registrada en el sistema');
           }
+        } finally {
+          client.release();
         }
       }
 
@@ -203,101 +167,65 @@ export class PatientService {
       console.log('✅ PatientService - Validaciones pasadas, iniciando transacción...');
       console.log('🏥 PatientService - Clínica asignada:', clinicaAlias);
       
-      if (USE_POSTGRES) {
-        // PostgreSQL implementation with transaction
-        const client = await postgresPool.connect();
-        try {
-          await client.query('BEGIN');
+      // PostgreSQL implementation with transaction
+      const client = await postgresPool.connect();
+      try {
+        await client.query('BEGIN');
 
-          // Incluir clinica_alias en los datos del paciente
-          const patientDataWithClinica = {
-            ...patientBasicData,
-            clinica_alias: clinicaAlias
-          };
-
-          // Crear el paciente usando el repositorio
-          const newPatient = await this.patientRepository.create(patientDataWithClinica);
-          console.log('✅ PatientService - Paciente creado:', newPatient.id);
-
-          // Si hay datos médicos, crear registro en historico_pacientes
-          if (motivo_consulta || diagnostico || conclusiones || plan || medicoId) {
-            const medicalData = {
-              paciente_id: newPatient.id,
-              motivo_consulta: motivo_consulta || null,
-              diagnostico: diagnostico || null,
-              conclusiones: conclusiones || null,
-              plan: plan || null,
-              medico_id: medicoId || null,
-              clinica_alias: clinicaAlias,
-              fecha_consulta: new Date().toISOString()
-            };
-
-            await client.query(
-              `INSERT INTO historico_pacientes 
-               (paciente_id, motivo_consulta, diagnostico, conclusiones, plan, medico_id, clinica_alias, fecha_consulta)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-              [
-                medicalData.paciente_id,
-                medicalData.motivo_consulta,
-                medicalData.diagnostico,
-                medicalData.conclusiones,
-                medicalData.plan,
-                medicalData.medico_id,
-                medicalData.clinica_alias,
-                medicalData.fecha_consulta
-              ]
-            );
-            console.log('✅ PatientService - Historial médico creado');
-          }
-
-          await client.query('COMMIT');
-          console.log('✅ PatientService - Transacción completada exitosamente');
-          return newPatient;
-        } catch (dbError: any) {
-          try {
-            await client.query('ROLLBACK');
-          } catch (rollbackError) {
-            console.error('❌ Error al hacer rollback:', rollbackError);
-          }
-          console.error('❌ PatientService - Error en transacción PostgreSQL:', dbError);
-          throw new Error(`Transaction failed: ${dbError.message}`);
-        } finally {
-          client.release();
-        }
-      } else {
-        // Supabase implementation (original)
         // Incluir clinica_alias en los datos del paciente
         const patientDataWithClinica = {
           ...patientBasicData,
           clinica_alias: clinicaAlias
         };
-        
-        // Usar transacción para garantizar integridad de datos
-        const medicalData = {
-          motivo_consulta: motivo_consulta || null,
-          diagnostico: diagnostico || null,
-          conclusiones: conclusiones || null,
-          plan: plan || null,
-          medico_id: medicoId || null,
-          clinica_alias: clinicaAlias // También incluir en datos médicos
-        };
-        
-        console.log('🔍 PatientService - Datos del paciente con clínica:', JSON.stringify(patientDataWithClinica, null, 2));
-        console.log('🔍 PatientService - Datos médicos:', JSON.stringify(medicalData, null, 2));
-        console.log('🔍 PatientService - Medico ID:', medicoId);
-        
-        const { data: result, error: transactionError } = await supabase.rpc('create_patient_with_history', {
-          patient_data: patientDataWithClinica,
-          medical_data: medicalData
-        });
 
-        if (transactionError) {
-          console.error('❌ PatientService - Error en transacción:', transactionError);
-          throw new Error(`Transaction failed: ${transactionError.message}`);
+        // Crear el paciente usando el repositorio
+        const newPatient = await this.patientRepository.create(patientDataWithClinica);
+        console.log('✅ PatientService - Paciente creado:', newPatient.id);
+
+        // Si hay datos médicos, crear registro en historico_pacientes
+        if (motivo_consulta || diagnostico || conclusiones || plan || medicoId) {
+          const medicalData = {
+            paciente_id: newPatient.id,
+            motivo_consulta: motivo_consulta || null,
+            diagnostico: diagnostico || null,
+            conclusiones: conclusiones || null,
+            plan: plan || null,
+            medico_id: medicoId || null,
+            clinica_alias: clinicaAlias,
+            fecha_consulta: new Date().toISOString()
+          };
+
+          await client.query(
+            `INSERT INTO historico_pacientes 
+             (paciente_id, motivo_consulta, diagnostico, conclusiones, plan, medico_id, clinica_alias, fecha_consulta)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [
+              medicalData.paciente_id,
+              medicalData.motivo_consulta,
+              medicalData.diagnostico,
+              medicalData.conclusiones,
+              medicalData.plan,
+              medicalData.medico_id,
+              medicalData.clinica_alias,
+              medicalData.fecha_consulta
+            ]
+          );
+          console.log('✅ PatientService - Historial médico creado');
         }
 
-        console.log('✅ PatientService - Transacción completada exitosamente:', result);
-        return result;
+        await client.query('COMMIT');
+        console.log('✅ PatientService - Transacción completada exitosamente');
+        return newPatient;
+      } catch (dbError: any) {
+        try {
+          await client.query('ROLLBACK');
+        } catch (rollbackError) {
+          console.error('❌ Error al hacer rollback:', rollbackError);
+        }
+        console.error('❌ PatientService - Error en transacción PostgreSQL:', dbError);
+        throw new Error(`Transaction failed: ${dbError.message}`);
+      } finally {
+        client.release();
       }
     } catch (error) {
       console.error('❌ PatientService - Error en createPatient:', error);
@@ -324,59 +252,35 @@ export class PatientService {
 
       // Validate email uniqueness if provided
       if (patientData.email) {
-        if (USE_POSTGRES) {
-          const client = await postgresPool.connect();
-          try {
-            const result = await client.query(
-              'SELECT id FROM pacientes WHERE email = $1 AND id != $2 LIMIT 1',
-              [patientData.email, id]
-            );
-            if (result.rows.length > 0) {
-              throw new Error('El email ya está registrado en el sistema');
-            }
-          } finally {
-            client.release();
-          }
-        } else {
-          const { data: existingPatientByEmail } = await supabase
-            .from('pacientes')
-            .select('id')
-            .eq('email', patientData.email)
-            .neq('id', id) // Excluir el paciente actual
-            .single();
-
-          if (existingPatientByEmail) {
+        // PostgreSQL implementation
+        const client = await postgresPool.connect();
+        try {
+          const result = await client.query(
+            'SELECT id FROM pacientes WHERE email = $1 AND id != $2 LIMIT 1',
+            [patientData.email, id]
+          );
+          if (result.rows.length > 0) {
             throw new Error('El email ya está registrado en el sistema');
           }
+        } finally {
+          client.release();
         }
       }
 
       // Validate cedula uniqueness if provided
       if (patientData.cedula) {
-        if (USE_POSTGRES) {
-          const client = await postgresPool.connect();
-          try {
-            const result = await client.query(
-              'SELECT id FROM pacientes WHERE cedula = $1 AND id != $2 LIMIT 1',
-              [patientData.cedula, id]
-            );
-            if (result.rows.length > 0) {
-              throw new Error('La cédula ya está registrada en el sistema');
-            }
-          } finally {
-            client.release();
-          }
-        } else {
-          const { data: existingPatientByCedula } = await supabase
-            .from('pacientes')
-            .select('id')
-            .eq('cedula', patientData.cedula)
-            .neq('id', id) // Excluir el paciente actual
-            .single();
-
-          if (existingPatientByCedula) {
+        // PostgreSQL implementation
+        const client = await postgresPool.connect();
+        try {
+          const result = await client.query(
+            'SELECT id FROM pacientes WHERE cedula = $1 AND id != $2 LIMIT 1',
+            [patientData.cedula, id]
+          );
+          if (result.rows.length > 0) {
             throw new Error('La cédula ya está registrada en el sistema');
           }
+        } finally {
+          client.release();
         }
       }
 
@@ -493,127 +397,38 @@ export class PatientService {
     try {
       console.log('🔄 Using fallback query for medico_id:', medicoId);
 
-      if (USE_POSTGRES) {
-        // PostgreSQL implementation with JOINs
-        const client = await postgresPool.connect();
-        try {
-          const today = new Date().toISOString().split('T')[0];
-          
-          console.log('🔍 PostgreSQL query - medico_id:', medicoId, 'today:', today);
-          
-          // Query to get unique patients from both historico_pacientes and consultas_pacientes
-          const result = await client.query(`
-            SELECT DISTINCT p.*
-            FROM pacientes p
-            WHERE p.id IN (
-              SELECT DISTINCT paciente_id 
-              FROM historico_pacientes 
-              WHERE medico_id = $1
-              UNION
-              SELECT DISTINCT paciente_id 
-              FROM consultas_pacientes 
-              WHERE medico_id = $1 
-                AND fecha_pautada >= $2
-                AND estado_consulta IN ('agendada', 'reagendada')
-            )
-            ORDER BY p.fecha_creacion DESC
-          `, [medicoId, today]);
-
-          console.log('✅ Fallback query result (PostgreSQL):', result.rows.length, 'unique patients');
-          return { patients: result.rows, total: result.rows.length };
-        } catch (dbError) {
-          console.error('❌ PostgreSQL query error:', dbError);
-          throw new Error(`Database query failed: ${(dbError as Error).message}`);
-        } finally {
-          client.release();
-        }
-      } else {
-        // Supabase implementation (original code)
-        // Query 1: Pacientes con historial médico
-        console.log('🔍 Query 1 - Buscando historial para medico_id:', medicoId);
-        
-        const { data: historicoData, error: historicoError } = await supabase
-          .from('historico_pacientes')
-          .select(`
-            *,
-            pacientes!inner(*)
-          `)
-          .eq('medico_id', medicoId);
-
-        console.log('🔍 Query 1 - Resultado historial:', historicoData?.length || 0, 'historias encontradas');
-        if (historicoData && historicoData.length > 0) {
-          console.log('🔍 Query 1 - Historias encontradas:', historicoData.map(h => ({
-            id: h.id,
-            paciente_id: h.paciente_id,
-            paciente_nombre: h.pacientes?.nombres + ' ' + h.pacientes?.apellidos
-          })));
-        }
-
-        if (historicoError) {
-          console.error('❌ Historico query error:', historicoError);
-          throw new Error(`Database error: ${historicoError.message}`);
-        }
-
-        // Query 2: Pacientes con consultas agendadas (fecha >= hoy)
+      // PostgreSQL implementation with JOINs
+      const client = await postgresPool.connect();
+      try {
         const today = new Date().toISOString().split('T')[0];
-        console.log('🔍 Query 2 - Buscando consultas para medico_id:', medicoId, 'fecha >=', today);
         
-        const { data: consultasData, error: consultasError } = await supabase
-          .from('consultas_pacientes')
-          .select(`
-            *,
-            pacientes!inner(*)
-          `)
-          .eq('medico_id', medicoId)
-          .gte('fecha_pautada', today) // Fecha >= hoy
-          .in('estado_consulta', ['agendada', 'reagendada']);
+        console.log('🔍 PostgreSQL query - medico_id:', medicoId, 'today:', today);
+        
+        // Query to get unique patients from both historico_pacientes and consultas_pacientes
+        const result = await client.query(`
+          SELECT DISTINCT p.*
+          FROM pacientes p
+          WHERE p.id IN (
+            SELECT DISTINCT paciente_id 
+            FROM historico_pacientes 
+            WHERE medico_id = $1
+            UNION
+            SELECT DISTINCT paciente_id 
+            FROM consultas_pacientes 
+            WHERE medico_id = $1 
+              AND fecha_pautada >= $2
+              AND estado_consulta IN ('agendada', 'reagendada')
+          )
+          ORDER BY p.fecha_creacion DESC
+        `, [medicoId, today]);
 
-        console.log('🔍 Query 2 - Resultado consultas:', consultasData?.length || 0, 'consultas encontradas');
-        if (consultasData && consultasData.length > 0) {
-          console.log('🔍 Query 2 - Consultas encontradas:', consultasData.map(c => ({
-            id: c.id,
-            paciente_id: c.paciente_id,
-            fecha_pautada: c.fecha_pautada,
-            estado_consulta: c.estado_consulta,
-            paciente_nombre: c.pacientes?.nombres + ' ' + c.pacientes?.apellidos
-          })));
-        }
-
-        if (consultasError) {
-          console.error('❌ Consultas query error:', consultasError);
-          throw new Error(`Database error: ${consultasError.message}`);
-        }
-
-        // Extract patient data from both queries
-        const historicoPatients = historicoData?.map(item => item.pacientes).filter(Boolean) || [];
-        const consultasPatients = consultasData?.map(item => item.pacientes).filter(Boolean) || [];
-        
-        // Combine both lists
-        const allPatients = [...historicoPatients, ...consultasPatients];
-        
-        // Remove duplicates based on patient ID
-        const uniquePatients = allPatients.filter((patient, index, self) => 
-          index === self.findIndex(p => p.id === patient.id)
-        );
-
-        console.log('✅ Fallback query result:', uniquePatients.length, 'unique patients');
-        console.log('📊 Historico patients:', historicoPatients.length);
-        console.log('📊 Consultas patients:', consultasPatients.length);
-        
-        // Debug específico para paciente ID 140
-        const paciente140 = uniquePatients.find(p => p.id === 140);
-        if (paciente140) {
-          console.log('✅ Paciente ID 140 encontrado:', {
-            id: paciente140.id,
-            nombre: paciente140.nombres + ' ' + paciente140.apellidos,
-            cedula: paciente140.cedula
-          });
-        } else {
-          console.log('❌ Paciente ID 140 NO encontrado en la lista final');
-          console.log('🔍 IDs de pacientes encontrados:', uniquePatients.map(p => p.id));
-        }
-        
-        return { patients: uniquePatients, total: uniquePatients.length };
+        console.log('✅ Fallback query result (PostgreSQL):', result.rows.length, 'unique patients');
+        return { patients: result.rows, total: result.rows.length };
+      } catch (dbError) {
+        console.error('❌ PostgreSQL query error:', dbError);
+        throw new Error(`Database query failed: ${(dbError as Error).message}`);
+      } finally {
+        client.release();
       }
     } catch (error) {
       console.error('❌ Fallback query error:', error);
@@ -630,33 +445,19 @@ export class PatientService {
         // For admin: get all patients directly from the patients table
         console.log('👑 Admin: Getting all patients for statistics');
         
-        if (USE_POSTGRES) {
-          const client = await postgresPool.connect();
-          try {
-            const result = await client.query(
-              'SELECT * FROM pacientes ORDER BY fecha_creacion DESC'
-            );
-            console.log('✅ Admin: Retrieved', result.rows.length, 'patients');
-            return result.rows;
-          } catch (dbError) {
-            console.error('❌ PostgreSQL query error (admin):', dbError);
-            throw new Error(`Database query failed: ${(dbError as Error).message}`);
-          } finally {
-            client.release();
-          }
-        } else {
-          const { data: allPatients, error: allPatientsError } = await supabase
-            .from('pacientes')
-            .select('*')
-            .order('fecha_creacion', { ascending: false });
-
-          if (allPatientsError) {
-            console.error('❌ Error getting all patients for admin:', allPatientsError);
-            throw new Error(`Failed to get all patients: ${allPatientsError.message}`);
-          }
-
-          console.log('✅ Admin: Retrieved', allPatients?.length || 0, 'patients');
-          return allPatients || [];
+        // PostgreSQL implementation
+        const client = await postgresPool.connect();
+        try {
+          const result = await client.query(
+            'SELECT * FROM pacientes ORDER BY fecha_creacion DESC'
+          );
+          console.log('✅ Admin: Retrieved', result.rows.length, 'patients');
+          return result.rows;
+        } catch (dbError) {
+          console.error('❌ PostgreSQL query error (admin):', dbError);
+          throw new Error(`Database query failed: ${(dbError as Error).message}`);
+        } finally {
+          client.release();
         }
       } else {
         // For doctor: use the fallback query (which includes both historico and consultas)

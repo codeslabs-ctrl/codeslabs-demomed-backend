@@ -1,12 +1,9 @@
 /**
- * Database Adapter - Abstraction layer for PostgreSQL and Supabase
+ * Database Adapter - Abstraction layer for PostgreSQL
  * 
- * This adapter provides a unified interface to work with both database systems.
- * It automatically selects the appropriate implementation based on USE_POSTGRES configuration.
+ * This adapter provides a unified interface to work with PostgreSQL database.
  */
 
-import { USE_POSTGRES } from '../config/database-config.js';
-import { supabase } from '../config/database.js';
 import { postgresPool } from '../config/database.js';
 
 export interface QueryOptions {
@@ -28,39 +25,27 @@ export interface QueryResult<T = any> {
  */
 export class DatabaseAdapter {
   /**
-   * Query a table (works with both PostgreSQL and Supabase)
+   * Query a table (PostgreSQL)
    */
   static async query<T = any>(
     tableName: string,
     options: QueryOptions = {}
   ): Promise<QueryResult<T>> {
-    if (USE_POSTGRES) {
-      return this.queryPostgres<T>(tableName, options);
-    } else {
-      return this.querySupabase<T>(tableName, options);
-    }
+    return this.queryPostgres<T>(tableName, options);
   }
 
   /**
    * Query a single record by ID
    */
   static async findById<T = any>(tableName: string, id: string | number, idColumn: string = 'id'): Promise<T | null> {
-    if (USE_POSTGRES) {
-      return this.findByIdPostgres<T>(tableName, id, idColumn);
-    } else {
-      return this.findByIdSupabase<T>(tableName, id, idColumn);
-    }
+    return this.findByIdPostgres<T>(tableName, id, idColumn);
   }
 
   /**
    * Insert a record
    */
   static async insert<T = any>(tableName: string, data: Partial<T>): Promise<T> {
-    if (USE_POSTGRES) {
-      return this.insertPostgres<T>(tableName, data);
-    } else {
-      return this.insertSupabase<T>(tableName, data);
-    }
+    return this.insertPostgres<T>(tableName, data);
   }
 
   /**
@@ -72,32 +57,20 @@ export class DatabaseAdapter {
     data: Partial<T>,
     idColumn: string = 'id'
   ): Promise<T> {
-    if (USE_POSTGRES) {
-      return this.updatePostgres<T>(tableName, id, data, idColumn);
-    } else {
-      return this.updateSupabase<T>(tableName, id, data, idColumn);
-    }
+    return this.updatePostgres<T>(tableName, id, data, idColumn);
   }
 
   /**
    * Delete a record
    */
   static async delete(tableName: string, id: string | number, idColumn: string = 'id'): Promise<boolean> {
-    if (USE_POSTGRES) {
-      return this.deletePostgres(tableName, id, idColumn);
-    } else {
-      return this.deleteSupabase(tableName, id, idColumn);
-    }
+    return this.deletePostgres(tableName, id, idColumn);
   }
 
   /**
-   * Execute a raw SQL query (PostgreSQL only)
+   * Execute a raw SQL query (PostgreSQL)
    */
   static async rawQuery<T = any>(sql: string, params: any[] = []): Promise<QueryResult<T>> {
-    if (!USE_POSTGRES) {
-      throw new Error('Raw SQL queries are only available with PostgreSQL');
-    }
-
     const client = await postgresPool.connect();
     try {
       const result = await client.query(sql, params);
@@ -267,153 +240,10 @@ export class DatabaseAdapter {
     }
   }
 
-  // Supabase implementations
-  private static async querySupabase<T = any>(
-    tableName: string,
-    options: QueryOptions = {}
-  ): Promise<QueryResult<T>> {
-    try {
-      const { select = '*', filters = {}, orderBy, limit, offset = 0 } = options;
-
-      let query = supabase.from(tableName).select(select, { count: 'exact' });
-
-      // Apply filters
-      Object.entries(filters).forEach(([key, value]) => {
-        if (value !== null && value !== undefined && value !== '') {
-          if (Array.isArray(value)) {
-            query = query.in(key, value);
-          } else {
-            query = query.eq(key, value);
-          }
-        }
-      });
-
-      // Apply order
-      if (orderBy) {
-        query = query.order(orderBy.column, { ascending: orderBy.ascending !== false });
-      }
-
-      // Apply pagination
-      if (limit) {
-        query = query.range(offset, offset + limit - 1);
-      }
-
-      const { data, error, count } = await query;
-
-      return {
-        data: (data || []) as T[],
-        error: error ? new Error(error.message) : null,
-        count: count || 0
-      };
-    } catch (error) {
-      return {
-        data: [] as T[],
-        error: error as Error,
-        count: 0
-      };
-    }
-  }
-
-  private static async findByIdSupabase<T = any>(
-    tableName: string,
-    id: string | number,
-    idColumn: string = 'id'
-  ): Promise<T | null> {
-    try {
-      const { data, error } = await supabase
-        .from(tableName)
-        .select('*')
-        .eq(idColumn, id)
-        .single();
-
-      if (error) {
-        if (error.code === 'PGRST116') {
-          return null;
-        }
-        throw new Error(error.message);
-      }
-
-      return data;
-    } catch (error) {
-      console.error(`Error finding by ID in ${tableName}:`, error);
-      return null;
-    }
-  }
-
-  private static async insertSupabase<T = any>(tableName: string, data: Partial<T>): Promise<T> {
-    const { data: result, error } = await supabase
-      .from(tableName)
-      .insert([data])
-      .select()
-      .single();
-
-    if (error) {
-      throw new Error(`Failed to insert into ${tableName}: ${error.message}`);
-    }
-
-    return result;
-  }
-
-  private static async updateSupabase<T = any>(
-    tableName: string,
-    id: string | number,
-    data: Partial<T>,
-    idColumn: string = 'id'
-  ): Promise<T> {
-    const { data: result, error } = await supabase
-      .from(tableName)
-      .update(data)
-      .eq(idColumn, id)
-      .select()
-      .single();
-
-    if (error) {
-      if (error.code === 'PGRST116') {
-        throw new Error('Record not found');
-      }
-      throw new Error(`Failed to update ${tableName}: ${error.message}`);
-    }
-
-    return result;
-  }
-
-  private static async deleteSupabase(
-    tableName: string,
-    id: string | number,
-    idColumn: string = 'id'
-  ): Promise<boolean> {
-    const { error } = await supabase
-      .from(tableName)
-      .delete()
-      .eq(idColumn, id);
-
-    if (error) {
-      throw new Error(`Failed to delete from ${tableName}: ${error.message}`);
-    }
-
-    return true;
-  }
-
   /**
-   * Get Supabase client (for auth, storage, etc. - Supabase-specific features)
-   * Returns null if using PostgreSQL
-   */
-  static getSupabaseClient() {
-    if (USE_POSTGRES) {
-      return null;
-    }
-    return supabase;
-  }
-
-  /**
-   * Get PostgreSQL pool (for raw queries - PostgreSQL only)
-   * Returns null if using Supabase
+   * Get PostgreSQL pool (for raw queries)
    */
   static getPostgresPool() {
-    if (!USE_POSTGRES) {
-      return null;
-    }
     return postgresPool;
   }
 }
-

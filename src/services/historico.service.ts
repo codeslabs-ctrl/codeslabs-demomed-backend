@@ -1,5 +1,4 @@
-import { supabase, postgresPool } from '../config/database.js';
-import { USE_POSTGRES } from '../config/database-config.js';
+import { postgresPool } from '../config/database.js';
 
 export interface HistoricoData {
   id: number;
@@ -32,77 +31,62 @@ export class HistoricoService {
         throw new Error('Valid paciente ID is required');
       }
 
-      if (USE_POSTGRES) {
-        // PostgreSQL implementation
-        const client = await postgresPool.connect();
-        try {
-          const query = `
-            SELECT 
-              h.id,
-              h.paciente_id,
-              h.medico_id,
-              h.motivo_consulta,
-              h.diagnostico,
-              h.conclusiones,
-              h.plan,
-              h.fecha_consulta,
-              h.fecha_creacion,
-              h.fecha_actualizacion,
-              h.ruta_archivo,
-              h.nombre_archivo,
-              p.nombres as paciente_nombre,
-              p.apellidos as paciente_apellidos,
-              m.nombres as medico_nombre,
-              m.apellidos as medico_apellidos,
-              e.nombre_especialidad as especialidad_nombre
-            FROM historico_pacientes h
-            LEFT JOIN pacientes p ON h.paciente_id = p.id
-            LEFT JOIN medicos m ON h.medico_id = m.id
-            LEFT JOIN especialidades e ON m.especialidad_id = e.id
-            WHERE h.paciente_id = $1
-            ORDER BY h.fecha_consulta DESC
-          `;
+      // PostgreSQL implementation
+      const client = await postgresPool.connect();
+      try {
+        const query = `
+          SELECT 
+            h.id,
+            h.paciente_id,
+            h.medico_id,
+            h.motivo_consulta,
+            h.diagnostico,
+            h.conclusiones,
+            h.plan,
+            h.fecha_consulta,
+            h.fecha_creacion,
+            h.fecha_actualizacion,
+            h.ruta_archivo,
+            h.nombre_archivo,
+            p.nombres as paciente_nombre,
+            p.apellidos as paciente_apellidos,
+            m.nombres as medico_nombre,
+            m.apellidos as medico_apellidos,
+            e.nombre_especialidad as especialidad_nombre
+          FROM historico_pacientes h
+          LEFT JOIN pacientes p ON h.paciente_id = p.id
+          LEFT JOIN medicos m ON h.medico_id = m.id
+          LEFT JOIN especialidades e ON m.especialidad_id = e.id
+          WHERE h.paciente_id = $1
+          ORDER BY h.fecha_consulta DESC
+        `;
 
-          const result = await client.query(query, [pacienteId]);
-          
-          return result.rows.map(row => ({
-            id: row.id,
-            paciente_id: row.paciente_id,
-            medico_id: row.medico_id,
-            motivo_consulta: row.motivo_consulta,
-            diagnostico: row.diagnostico,
-            conclusiones: row.conclusiones,
-            plan: row.plan,
-            fecha_consulta: row.fecha_consulta,
-            fecha_creacion: row.fecha_creacion,
-            fecha_actualizacion: row.fecha_actualizacion,
-            ruta_archivo: row.ruta_archivo,
-            nombre_archivo: row.nombre_archivo,
-            paciente_nombre: row.paciente_nombre,
-            paciente_apellidos: row.paciente_apellidos,
-            medico_nombre: row.medico_nombre,
-            medico_apellidos: row.medico_apellidos,
-            especialidad_nombre: row.especialidad_nombre
-          }));
-        } catch (dbError) {
-          console.error('❌ Error en consulta PostgreSQL:', dbError);
-          throw new Error(`Database error: ${(dbError as Error).message}`);
-        } finally {
-          client.release();
-        }
-      } else {
-        // Supabase implementation
-        const { data, error } = await supabase
-          .from('vista_historico_por_paciente')
-          .select('*')
-          .eq('paciente_id', pacienteId)
-          .order('fecha_consulta', { ascending: false });
-
-        if (error) {
-          throw new Error(`Database error: ${error.message}`);
-        }
-
-        return data || [];
+        const result = await client.query(query, [pacienteId]);
+        
+        return result.rows.map(row => ({
+          id: row.id,
+          paciente_id: row.paciente_id,
+          medico_id: row.medico_id,
+          motivo_consulta: row.motivo_consulta,
+          diagnostico: row.diagnostico,
+          conclusiones: row.conclusiones,
+          plan: row.plan,
+          fecha_consulta: row.fecha_consulta,
+          fecha_creacion: row.fecha_creacion,
+          fecha_actualizacion: row.fecha_actualizacion,
+          ruta_archivo: row.ruta_archivo,
+          nombre_archivo: row.nombre_archivo,
+          paciente_nombre: row.paciente_nombre,
+          paciente_apellidos: row.paciente_apellidos,
+          medico_nombre: row.medico_nombre,
+          medico_apellidos: row.medico_apellidos,
+          especialidad_nombre: row.especialidad_nombre
+        }));
+      } catch (dbError) {
+        console.error('❌ Error en consulta PostgreSQL:', dbError);
+        throw new Error(`Database error: ${(dbError as Error).message}`);
+      } finally {
+        client.release();
       }
     } catch (error) {
       console.error('❌ Error en getHistoricoByPaciente:', error);
@@ -116,18 +100,63 @@ export class HistoricoService {
         throw new Error('Valid medico ID is required');
       }
 
-      // Usar la vista vista_historico_por_medico
-      const { data, error } = await supabase
-        .from('vista_historico_por_medico')
-        .select('*')
-        .eq('medico_id', medicoId)
-        .order('fecha_consulta', { ascending: false });
+      // PostgreSQL implementation
+      const client = await postgresPool.connect();
+      try {
+        const query = `
+          SELECT 
+            h.id,
+            h.paciente_id,
+            h.medico_id,
+            h.motivo_consulta,
+            h.diagnostico,
+            h.conclusiones,
+            h.plan,
+            h.fecha_consulta,
+            h.fecha_creacion,
+            h.fecha_actualizacion,
+            h.ruta_archivo,
+            h.nombre_archivo,
+            p.nombres as paciente_nombre,
+            p.apellidos as paciente_apellidos,
+            m.nombres as medico_nombre,
+            m.apellidos as medico_apellidos,
+            e.nombre_especialidad as especialidad_nombre
+          FROM historico_pacientes h
+          LEFT JOIN pacientes p ON h.paciente_id = p.id
+          LEFT JOIN medicos m ON h.medico_id = m.id
+          LEFT JOIN especialidades e ON m.especialidad_id = e.id
+          WHERE h.medico_id = $1
+          ORDER BY h.fecha_consulta DESC
+        `;
 
-      if (error) {
-        throw new Error(`Database error: ${error.message}`);
+        const result = await client.query(query, [medicoId]);
+        
+        return result.rows.map(row => ({
+          id: row.id,
+          paciente_id: row.paciente_id,
+          medico_id: row.medico_id,
+          motivo_consulta: row.motivo_consulta,
+          diagnostico: row.diagnostico,
+          conclusiones: row.conclusiones,
+          plan: row.plan,
+          fecha_consulta: row.fecha_consulta,
+          fecha_creacion: row.fecha_creacion,
+          fecha_actualizacion: row.fecha_actualizacion,
+          ruta_archivo: row.ruta_archivo,
+          nombre_archivo: row.nombre_archivo,
+          paciente_nombre: row.paciente_nombre,
+          paciente_apellidos: row.paciente_apellidos,
+          medico_nombre: row.medico_nombre,
+          medico_apellidos: row.medico_apellidos,
+          especialidad_nombre: row.especialidad_nombre
+        }));
+      } catch (dbError) {
+        console.error('❌ Error en consulta PostgreSQL:', dbError);
+        throw new Error(`Database error: ${(dbError as Error).message}`);
+      } finally {
+        client.release();
       }
-
-      return data || [];
     } catch (error) {
       throw new Error(`Failed to get historico by medico: ${(error as Error).message}`);
     }
@@ -135,17 +164,62 @@ export class HistoricoService {
 
   async getHistoricoCompleto(): Promise<HistoricoWithDetails[]> {
     try {
-      // Usar la vista vista_historico_completo
-      const { data, error } = await supabase
-        .from('vista_historico_completo')
-        .select('*')
-        .order('fecha_consulta', { ascending: false });
+      // PostgreSQL implementation
+      const client = await postgresPool.connect();
+      try {
+        const query = `
+          SELECT 
+            h.id,
+            h.paciente_id,
+            h.medico_id,
+            h.motivo_consulta,
+            h.diagnostico,
+            h.conclusiones,
+            h.plan,
+            h.fecha_consulta,
+            h.fecha_creacion,
+            h.fecha_actualizacion,
+            h.ruta_archivo,
+            h.nombre_archivo,
+            p.nombres as paciente_nombre,
+            p.apellidos as paciente_apellidos,
+            m.nombres as medico_nombre,
+            m.apellidos as medico_apellidos,
+            e.nombre_especialidad as especialidad_nombre
+          FROM historico_pacientes h
+          LEFT JOIN pacientes p ON h.paciente_id = p.id
+          LEFT JOIN medicos m ON h.medico_id = m.id
+          LEFT JOIN especialidades e ON m.especialidad_id = e.id
+          ORDER BY h.fecha_consulta DESC
+        `;
 
-      if (error) {
-        throw new Error(`Database error: ${error.message}`);
+        const result = await client.query(query);
+        
+        return result.rows.map(row => ({
+          id: row.id,
+          paciente_id: row.paciente_id,
+          medico_id: row.medico_id,
+          motivo_consulta: row.motivo_consulta,
+          diagnostico: row.diagnostico,
+          conclusiones: row.conclusiones,
+          plan: row.plan,
+          fecha_consulta: row.fecha_consulta,
+          fecha_creacion: row.fecha_creacion,
+          fecha_actualizacion: row.fecha_actualizacion,
+          ruta_archivo: row.ruta_archivo,
+          nombre_archivo: row.nombre_archivo,
+          paciente_nombre: row.paciente_nombre,
+          paciente_apellidos: row.paciente_apellidos,
+          medico_nombre: row.medico_nombre,
+          medico_apellidos: row.medico_apellidos,
+          especialidad_nombre: row.especialidad_nombre
+        }));
+      } catch (dbError) {
+        console.error('❌ Error en consulta PostgreSQL:', dbError);
+        throw new Error(`Database error: ${(dbError as Error).message}`);
+      } finally {
+        client.release();
       }
-
-      return data || [];
     } catch (error) {
       throw new Error(`Failed to get historico completo: ${(error as Error).message}`);
     }
@@ -153,25 +227,78 @@ export class HistoricoService {
 
   async getHistoricoFiltrado(pacienteId?: number, medicoId?: number): Promise<HistoricoWithDetails[]> {
     try {
-      let query = supabase
-        .from('vista_historico_completo')
-        .select('*');
+      // PostgreSQL implementation
+      const client = await postgresPool.connect();
+      try {
+        let query = `
+          SELECT 
+            h.id,
+            h.paciente_id,
+            h.medico_id,
+            h.motivo_consulta,
+            h.diagnostico,
+            h.conclusiones,
+            h.plan,
+            h.fecha_consulta,
+            h.fecha_creacion,
+            h.fecha_actualizacion,
+            h.ruta_archivo,
+            h.nombre_archivo,
+            p.nombres as paciente_nombre,
+            p.apellidos as paciente_apellidos,
+            m.nombres as medico_nombre,
+            m.apellidos as medico_apellidos,
+            e.nombre_especialidad as especialidad_nombre
+          FROM historico_pacientes h
+          LEFT JOIN pacientes p ON h.paciente_id = p.id
+          LEFT JOIN medicos m ON h.medico_id = m.id
+          LEFT JOIN especialidades e ON m.especialidad_id = e.id
+          WHERE 1=1
+        `;
+        const params: any[] = [];
+        let paramIndex = 1;
 
-      if (pacienteId) {
-        query = query.eq('paciente_id', pacienteId);
+        if (pacienteId) {
+          query += ` AND h.paciente_id = $${paramIndex}`;
+          params.push(pacienteId);
+          paramIndex++;
+        }
+
+        if (medicoId) {
+          query += ` AND h.medico_id = $${paramIndex}`;
+          params.push(medicoId);
+          paramIndex++;
+        }
+
+        query += ` ORDER BY h.fecha_consulta DESC`;
+
+        const result = await client.query(query, params);
+        
+        return result.rows.map(row => ({
+          id: row.id,
+          paciente_id: row.paciente_id,
+          medico_id: row.medico_id,
+          motivo_consulta: row.motivo_consulta,
+          diagnostico: row.diagnostico,
+          conclusiones: row.conclusiones,
+          plan: row.plan,
+          fecha_consulta: row.fecha_consulta,
+          fecha_creacion: row.fecha_creacion,
+          fecha_actualizacion: row.fecha_actualizacion,
+          ruta_archivo: row.ruta_archivo,
+          nombre_archivo: row.nombre_archivo,
+          paciente_nombre: row.paciente_nombre,
+          paciente_apellidos: row.paciente_apellidos,
+          medico_nombre: row.medico_nombre,
+          medico_apellidos: row.medico_apellidos,
+          especialidad_nombre: row.especialidad_nombre
+        }));
+      } catch (dbError) {
+        console.error('❌ Error en consulta PostgreSQL:', dbError);
+        throw new Error(`Database error: ${(dbError as Error).message}`);
+      } finally {
+        client.release();
       }
-
-      if (medicoId) {
-        query = query.eq('medico_id', medicoId);
-      }
-
-      const { data, error } = await query.order('fecha_consulta', { ascending: false });
-
-      if (error) {
-        throw new Error(`Database error: ${error.message}`);
-      }
-
-      return data || [];
     } catch (error) {
       throw new Error(`Failed to get historico filtrado: ${(error as Error).message}`);
     }
@@ -205,92 +332,84 @@ export class HistoricoService {
 
       console.log('🔍 getMedicosConHistoriaByPaciente - pacienteId:', pacienteId);
 
-      if (USE_POSTGRES) {
-        // PostgreSQL implementation
-        const client = await postgresPool.connect();
-        try {
-          const query = `
-            SELECT DISTINCT ON (h.medico_id)
-              h.medico_id,
-              h.fecha_consulta as ultima_consulta,
-              m.nombres as medico_nombre,
-              m.apellidos as medico_apellidos,
-              e.nombre_especialidad as especialidad_nombre
-            FROM historico_pacientes h
-            INNER JOIN medicos m ON h.medico_id = m.id
-            LEFT JOIN especialidades e ON m.especialidad_id = e.id
-            WHERE h.paciente_id = $1
-            ORDER BY h.medico_id, h.fecha_consulta DESC
-          `;
+      // PostgreSQL implementation
+      const client = await postgresPool.connect();
+      try {
+        const query = `
+          SELECT DISTINCT ON (h.medico_id)
+            h.medico_id,
+            h.fecha_consulta as ultima_consulta,
+            m.nombres as medico_nombre,
+            m.apellidos as medico_apellidos,
+            e.nombre_especialidad as especialidad_nombre
+          FROM historico_pacientes h
+          INNER JOIN medicos m ON h.medico_id = m.id
+          LEFT JOIN especialidades e ON m.especialidad_id = e.id
+          WHERE h.paciente_id = $1
+          ORDER BY h.medico_id, h.fecha_consulta DESC
+        `;
 
-          const result = await client.query(query, [pacienteId]);
-          
-          const medicos = result.rows.map(row => ({
-            medico_id: row.medico_id,
-            medico_nombre: row.medico_nombre || 'Médico',
-            medico_apellidos: row.medico_apellidos || 'Desconocido',
-            especialidad_nombre: row.especialidad_nombre || 'Sin especialidad',
-            ultima_consulta: row.ultima_consulta
-          }));
-
-          console.log('✅ Médicos con historia encontrados (PostgreSQL):', medicos.length);
-          return medicos;
-        } catch (dbError) {
-          console.error('❌ Error en consulta PostgreSQL:', dbError);
-          throw new Error(`Database error: ${(dbError as Error).message}`);
-        } finally {
-          client.release();
-        }
-      } else {
-        // Supabase implementation
-        const { data, error } = await supabase
-          .from('historico_pacientes')
-          .select(`
-            medico_id,
-            fecha_consulta,
-            medicos!inner(
-              nombres,
-              apellidos,
-              especialidad_id,
-              especialidades!inner(
-                nombre_especialidad
-              )
-            )
-          `)
-          .eq('paciente_id', pacienteId)
-          .order('fecha_consulta', { ascending: false });
-
-        if (error) {
-          console.error('❌ Error en consulta SQL:', error);
-          throw new Error(`Database error: ${error.message}`);
-        }
-
-        // Agrupar por médico y obtener la información más reciente de cada uno
-        const medicosMap = new Map();
+        const result = await client.query(query, [pacienteId]);
         
-        data?.forEach(historia => {
-          if (!medicosMap.has(historia.medico_id)) {
-            const medico = Array.isArray(historia.medicos) ? historia.medicos[0] : historia.medicos;
-            const especialidad = Array.isArray(medico?.especialidades) ? medico.especialidades[0] : medico?.especialidades;
-            
-            medicosMap.set(historia.medico_id, {
-              medico_id: historia.medico_id,
-              medico_nombre: medico?.nombres || 'Médico',
-              medico_apellidos: medico?.apellidos || 'Desconocido',
-              especialidad_nombre: especialidad?.nombre_especialidad || 'Sin especialidad',
-              ultima_consulta: historia.fecha_consulta
-            });
-          }
-        });
+        const medicos = result.rows.map(row => ({
+          medico_id: row.medico_id,
+          medico_nombre: row.medico_nombre || 'Médico',
+          medico_apellidos: row.medico_apellidos || 'Desconocido',
+          especialidad_nombre: row.especialidad_nombre || 'Sin especialidad',
+          ultima_consulta: row.ultima_consulta
+        }));
 
-        const medicos = Array.from(medicosMap.values());
-        console.log('✅ Médicos con historia encontrados:', medicos.length);
-        
+        console.log('✅ Médicos con historia encontrados (PostgreSQL):', medicos.length);
         return medicos;
+      } catch (dbError) {
+        console.error('❌ Error en consulta PostgreSQL:', dbError);
+        throw new Error(`Database error: ${(dbError as Error).message}`);
+      } finally {
+        client.release();
       }
     } catch (error) {
       console.error('❌ Error en getMedicosConHistoriaByPaciente:', error);
       throw new Error(`Failed to get medicos con historia by paciente: ${(error as Error).message}`);
+    }
+  }
+
+  // Verificar si un paciente tiene historia médica para una especialidad específica
+  async tieneHistoriaPorEspecialidad(pacienteId: number, especialidadId: number): Promise<boolean> {
+    try {
+      if (!pacienteId || pacienteId <= 0) {
+        throw new Error('Valid paciente ID is required');
+      }
+      if (!especialidadId || especialidadId <= 0) {
+        throw new Error('Valid especialidad ID is required');
+      }
+
+      console.log('🔍 tieneHistoriaPorEspecialidad - pacienteId:', pacienteId, 'especialidadId:', especialidadId);
+
+      // PostgreSQL implementation
+      const client = await postgresPool.connect();
+      try {
+        const query = `
+          SELECT COUNT(*) as count
+          FROM historico_pacientes h
+          INNER JOIN medicos m ON h.medico_id = m.id
+          WHERE h.paciente_id = $1
+            AND m.especialidad_id = $2
+        `;
+
+        const result = await client.query(query, [pacienteId, especialidadId]);
+        const count = parseInt(result.rows[0]?.count || '0');
+        
+        console.log('✅ Historia médica encontrada (PostgreSQL):', count > 0);
+        return count > 0;
+      } catch (dbError) {
+        console.error('❌ Error en consulta PostgreSQL:', dbError);
+        throw new Error(`Database error: ${(dbError as Error).message}`);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      console.error('❌ Error en tieneHistoriaPorEspecialidad:', error);
+      throw new Error(`Failed to check historia por especialidad: ${(error as Error).message}`);
     }
   }
 
@@ -306,9 +425,9 @@ export class HistoricoService {
 
       console.log('🔍 getHistoricoByPacienteAndMedico - pacienteId:', pacienteId, 'medicoId:', medicoId);
 
-      if (USE_POSTGRES) {
-        const client = await postgresPool.connect();
-        try {
+      // PostgreSQL implementation
+      const client = await postgresPool.connect();
+      try {
           const query = `
             SELECT 
               h.id, h.paciente_id, h.medico_id, h.motivo_consulta, h.diagnostico, 
@@ -359,36 +478,6 @@ export class HistoricoService {
         } finally {
           client.release();
         }
-      } else {
-        // Usar consulta directa a la tabla historico_pacientes
-        const { data, error } = await supabase
-          .from('historico_pacientes')
-          .select(`
-            *,
-            medicos!inner(
-              nombres,
-              apellidos,
-              especialidad_id,
-              especialidades!inner(
-                nombre_especialidad
-              )
-            )
-          `)
-          .eq('paciente_id', pacienteId)
-          .eq('medico_id', medicoId)
-          .order('fecha_consulta', { ascending: false })
-          .limit(1);
-
-        if (error) {
-          console.error('❌ Error en consulta SQL:', error);
-          throw new Error(`Database error: ${error.message}`);
-        }
-
-        const historia = data && data.length > 0 ? data[0] : null;
-        console.log('✅ Historia encontrada:', historia ? 'Sí' : 'No');
-        
-        return historia;
-      }
     } catch (error) {
       console.error('❌ Error en getHistoricoByPacienteAndMedico:', error);
       throw new Error(`Failed to get historico by paciente and medico: ${(error as Error).message}`);
@@ -421,9 +510,9 @@ export class HistoricoService {
       console.log('🔍 updateHistorico - filteredData:', filteredData);
       console.log('🔍 updateHistorico - filteredData keys:', Object.keys(filteredData));
 
-      if (USE_POSTGRES) {
-        const client = await postgresPool.connect();
-        try {
+      // PostgreSQL implementation
+      const client = await postgresPool.connect();
+      try {
           // Construir la consulta UPDATE dinámicamente
           const updateFields: string[] = [];
           const values: any[] = [];
@@ -552,68 +641,6 @@ export class HistoricoService {
         } finally {
           client.release();
         }
-      } else {
-        // Actualizar en la tabla historico_pacientes
-        const { data, error } = await supabase
-          .from('historico_pacientes')
-          .update({
-            ...filteredData,
-            fecha_actualizacion: new Date().toISOString(),
-            clinica_alias: process.env['CLINICA_ALIAS'] || 'femimed'
-          })
-          .eq('id', historicoId)
-          .select()
-          .single();
-
-        if (error) {
-          console.error('❌ updateHistorico - Database error:', error);
-          throw new Error(`Database error: ${error.message}`);
-        }
-
-        if (!data) {
-          throw new Error('No historico found with the given ID');
-        }
-
-        console.log('✅ updateHistorico - Updated successfully:', data);
-
-        // Obtener los datos completos con joins
-        const { data: fullData, error: fullError } = await supabase
-          .from('vista_historico_por_paciente')
-          .select('*')
-          .eq('id', historicoId)
-          .single();
-
-        if (fullError) {
-          console.error('❌ updateHistorico - Error getting full data:', fullError);
-          throw new Error(`Database error getting full data: ${fullError.message}`);
-        }
-
-        // Buscar el consulta_id relacionado a esta historia (Supabase)
-        const fechaConsultaUpdateSupabase = data.fecha_consulta || new Date().toISOString().split('T')[0];
-        
-        const { data: consultas, error: consultaSearchError } = await supabase
-          .from('consultas_pacientes')
-          .select('id, estado_consulta')
-          .eq('paciente_id', data.paciente_id)
-          .eq('medico_id', data.medico_id)
-          .eq('fecha_pautada', fechaConsultaUpdateSupabase)
-          .in('estado_consulta', ['agendada', 'reagendada', 'en_progreso', 'por_agendar'])
-          .order('fecha_pautada', { ascending: false })
-          .order('fecha_creacion', { ascending: false })
-          .limit(1);
-        
-        const consultaIdSupabase = (!consultaSearchError && consultas && consultas.length > 0 && consultas[0]) ? consultas[0].id : null;
-        
-        // Actualizar el estado de la consulta relacionada a "completada" (Supabase)
-        await this.actualizarEstadoConsultaSupabase(
-          consultaIdSupabase,
-          data.paciente_id,
-          data.medico_id,
-          fechaConsultaUpdateSupabase
-        );
-
-        return fullData;
-      }
     } catch (error) {
       console.error('❌ updateHistorico - Error:', error);
       throw new Error(`Failed to update historico: ${(error as Error).message}`);
@@ -783,117 +810,7 @@ export class HistoricoService {
     }
   }
 
-  /**
-   * Actualiza el estado de la consulta relacionada a "completada" cuando se crea o edita una historia médica (Supabase)
-   */
-  private async actualizarEstadoConsultaSupabase(
-    consultaId: number | null,
-    pacienteId: number,
-    medicoId: number,
-    fechaConsulta: string
-  ): Promise<void> {
-    try {
-      console.log('🔄 actualizarEstadoConsultaSupabase - Buscando consulta relacionada:', {
-        consultaId,
-        pacienteId,
-        medicoId,
-        fechaConsulta
-      });
-
-      // Si tenemos el ID de la consulta, usarlo directamente
-      if (consultaId && consultaId > 0) {
-        console.log('🔍 actualizarEstadoConsultaSupabase - Usando consulta_id directamente:', consultaId);
-        
-        // Verificar que la consulta existe y está en un estado válido
-        const { data: consulta, error: checkError } = await supabase
-          .from('consultas_pacientes')
-          .select('id, estado_consulta, paciente_id, medico_id')
-          .eq('id', consultaId)
-          .in('estado_consulta', ['agendada', 'reagendada', 'en_progreso', 'por_agendar'])
-          .single();
-        
-        if (checkError || !consulta) {
-          console.log('⚠️ actualizarEstadoConsultaSupabase - Consulta no encontrada o no está en estado válido:', consultaId);
-          return;
-        }
-        
-        console.log('🔍 actualizarEstadoConsultaSupabase - Consulta encontrada:', {
-          id: consulta.id,
-          estado: consulta.estado_consulta,
-          paciente_id: consulta.paciente_id,
-          medico_id: consulta.medico_id
-        });
-        
-        // Actualizar la consulta directamente por ID
-        const { error: updateError } = await supabase
-          .from('consultas_pacientes')
-          .update({
-            estado_consulta: 'completada',
-            fecha_culminacion: new Date().toISOString(),
-            fecha_actualizacion: new Date().toISOString()
-          })
-          .eq('id', consultaId);
-        
-        if (updateError) {
-          console.error('⚠️ actualizarEstadoConsultaSupabase - Error actualizando consulta:', updateError);
-        } else {
-          console.log(`✅ actualizarEstadoConsultaSupabase - Consulta ID ${consultaId} actualizada a "completada"`);
-        }
-        return;
-      }
-
-      // Buscar la consulta más reciente que coincida con paciente_id y medico_id
-      // y que esté en un estado válido para completar
-      const { data: consultas, error: searchError } = await supabase
-        .from('consultas_pacientes')
-        .select('id, estado_consulta, fecha_pautada')
-        .eq('paciente_id', pacienteId)
-        .eq('medico_id', medicoId)
-        .in('estado_consulta', ['agendada', 'reagendada', 'en_progreso', 'por_agendar'])
-        .order('fecha_pautada', { ascending: false })
-        .order('fecha_creacion', { ascending: false })
-        .limit(1);
-
-      if (searchError) {
-        console.error('⚠️ actualizarEstadoConsultaSupabase - Error buscando consultas:', searchError);
-        return;
-      }
-
-      if (consultas && consultas.length > 0) {
-        const consulta = consultas[0];
-        if (!consulta) {
-          console.log('ℹ️ actualizarEstadoConsultaSupabase - Consulta no encontrada');
-          return;
-        }
-        
-        console.log('🔍 actualizarEstadoConsultaSupabase - Consulta encontrada:', {
-          id: consulta.id,
-          estado: consulta.estado_consulta,
-          fecha_pautada: consulta.fecha_pautada
-        });
-
-        const { error: updateError } = await supabase
-          .from('consultas_pacientes')
-          .update({
-            estado_consulta: 'completada',
-            fecha_culminacion: new Date().toISOString(),
-            fecha_actualizacion: new Date().toISOString()
-          })
-          .eq('id', consulta.id);
-
-        if (updateError) {
-          console.error('⚠️ actualizarEstadoConsultaSupabase - Error actualizando consulta:', updateError);
-        } else {
-          console.log(`✅ actualizarEstadoConsultaSupabase - Consulta ID ${consulta.id} actualizada a "completada"`);
-        }
-      } else {
-        console.log('ℹ️ actualizarEstadoConsultaSupabase - No se encontraron consultas activas para actualizar');
-      }
-    } catch (error) {
-      // No lanzar error, solo registrar, para no interrumpir el flujo principal
-      console.error('⚠️ actualizarEstadoConsultaSupabase - Error al actualizar estado de consulta:', error);
-    }
-  }
+  // Método obsoleto - ya no se usa Supabase, eliminado
 
   async createHistorico(historicoData: Omit<HistoricoData, 'id' | 'fecha_creacion' | 'fecha_actualizacion'>): Promise<HistoricoWithDetails> {
     try {
@@ -912,9 +829,9 @@ export class HistoricoService {
       // Por ahora, usaremos un valor por defecto o lo pasaremos desde el frontend
       const medicoId = historicoData.medico_id || 1; // TODO: Obtener del token JWT
 
-      if (USE_POSTGRES) {
-        const client = await postgresPool.connect();
-        try {
+      // PostgreSQL implementation
+      const client = await postgresPool.connect();
+      try {
           const insertQuery = `
             INSERT INTO historico_pacientes (
               paciente_id, medico_id, motivo_consulta, diagnostico, 
@@ -1010,90 +927,6 @@ export class HistoricoService {
         } finally {
           client.release();
         }
-      } else {
-        const insertData = {
-          paciente_id: historicoData.paciente_id,
-          medico_id: medicoId,
-          motivo_consulta: historicoData.motivo_consulta,
-          diagnostico: historicoData.diagnostico || null,
-          conclusiones: historicoData.conclusiones || null,
-          plan: historicoData.plan || null,
-          fecha_consulta: historicoData.fecha_consulta || new Date().toISOString().split('T')[0],
-          clinica_alias: process.env['CLINICA_ALIAS'] || 'femimed'
-        };
-        
-        console.log('🔍 Datos a insertar en la base de datos:', insertData);
-        
-        const { data, error } = await supabase
-          .from('historico_pacientes')
-          .insert(insertData)
-          .select()
-          .single();
-
-        if (error) {
-          console.error('❌ createHistorico - Error:', error);
-          throw new Error(`Database error: ${error.message}`);
-        }
-
-        console.log('✅ createHistorico - Historial creado:', data);
-
-        // Obtener los datos completos con joins
-        const { data: fullData, error: fullError } = await supabase
-          .from('vista_historico_por_paciente')
-          .select('*')
-          .eq('id', data.id)
-          .single();
-
-        if (fullError) {
-          console.error('❌ createHistorico - Error getting full data:', fullError);
-          throw new Error(`Database error getting full data: ${fullError.message}`);
-        }
-
-        // Buscar la consulta relacionada en consultas_pacientes para actualizar su estado (Supabase)
-        const fechaConsultaSupabase = (historicoData.fecha_consulta || new Date().toISOString().split('T')[0]) as string;
-        
-        console.log('🔍 createHistorico (Supabase) - Buscando consulta relacionada');
-        console.log('🔍 createHistorico (Supabase) - paciente_id:', historicoData.paciente_id);
-        console.log('🔍 createHistorico (Supabase) - medico_id:', medicoId);
-        console.log('🔍 createHistorico (Supabase) - consulta_id proporcionado:', historicoData.consulta_id);
-        
-        // Primero intentar usar el consulta_id si fue proporcionado
-        let consultaIdSupabase = historicoData.consulta_id || null;
-        
-        // Si no hay consulta_id, buscar la consulta más reciente
-        if (!consultaIdSupabase || consultaIdSupabase <= 0) {
-          const { data: consultas, error: consultaSearchError } = await supabase
-            .from('consultas_pacientes')
-            .select('id, estado_consulta')
-            .eq('paciente_id', historicoData.paciente_id)
-            .eq('medico_id', medicoId)
-            .in('estado_consulta', ['agendada', 'reagendada', 'en_progreso', 'por_agendar', 'completada'])
-            .order('fecha_pautada', { ascending: false })
-            .order('fecha_creacion', { ascending: false })
-            .limit(1);
-          
-          if (!consultaSearchError && consultas && consultas.length > 0 && consultas[0]) {
-            consultaIdSupabase = consultas[0].id;
-            console.log('🔍 createHistorico (Supabase) - Consulta encontrada por búsqueda:', consultaIdSupabase);
-          } else {
-            console.log('ℹ️ createHistorico (Supabase) - No se encontró consulta relacionada');
-          }
-        } else {
-          console.log('🔍 createHistorico (Supabase) - Usando consulta_id proporcionado:', consultaIdSupabase);
-        }
-        
-        // Actualizar el estado de la consulta en consultas_pacientes a "completada" (Supabase)
-        if (consultaIdSupabase) {
-          await this.actualizarEstadoConsultaSupabase(
-            consultaIdSupabase,
-            historicoData.paciente_id,
-            medicoId,
-            fechaConsultaSupabase
-          );
-        }
-
-        return fullData;
-      }
     } catch (error) {
       console.error('❌ createHistorico - Error:', error);
       throw new Error(`Failed to create historico: ${(error as Error).message}`);

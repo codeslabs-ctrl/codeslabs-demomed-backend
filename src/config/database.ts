@@ -1,37 +1,11 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Pool, PoolClient } from 'pg';
 import dotenv from 'dotenv';
-import { USE_POSTGRES } from './database-config.js';
 
 // Load environment variables
 // Use process.cwd() to find config.env in the project root
 import path from 'path';
 const configDir = process.cwd();
 dotenv.config({ path: path.join(configDir, 'config.env') });
-
-// Supabase Configuration (only if not using PostgreSQL)
-const supabaseUrl: string = process.env['SUPABASE_URL'] || '';
-const supabaseAnonKey: string = process.env['SUPABASE_ANON_KEY'] || '';
-
-// Create Supabase client (only if using Supabase)
-let supabaseClient: SupabaseClient | null = null;
-
-if (!USE_POSTGRES) {
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('Missing Supabase configuration. Please check your environment variables.');
-  }
-  
-  supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
-    auth: {
-      autoRefreshToken: true,
-      persistSession: true,
-      detectSessionInUrl: true
-    }
-  });
-}
-
-// Export Supabase client (for backward compatibility, but will be null if using PostgreSQL)
-export const supabase: SupabaseClient = supabaseClient as SupabaseClient;
 
 // PostgreSQL Direct Connection Configuration
 const postgresConfig = {
@@ -55,19 +29,6 @@ postgresPool.on('error', (err) => {
   process.exit(-1);
 });
 
-// Test Supabase connection
-export const testSupabaseConnection = async (): Promise<void> => {
-  try {
-    const { error } = await supabase.from('_health').select('*').limit(1);
-    if (error) {
-      console.log('Supabase connection test completed (health check may not exist)');
-    } else {
-      console.log('✅ Supabase connection successful');
-    }
-  } catch (error) {
-    console.log('Supabase connection test completed');
-  }
-};
 
 // Test PostgreSQL direct connection
 export const testPostgresConnection = async (): Promise<boolean> => {
@@ -143,16 +104,11 @@ export const testPostgresConnection = async (): Promise<boolean> => {
   }
 };
 
-// Test connection function - uses the database selected at build time
+// Test connection function - always uses PostgreSQL
 export const testConnection = async (): Promise<void> => {
-  if (USE_POSTGRES) {
-    console.log('🔧 Using PostgreSQL (build-time configuration)');
-    const success = await testPostgresConnection();
-    if (!success) {
-      throw new Error('PostgreSQL connection test failed');
-    }
-  } else {
-    console.log('🔧 Using Supabase (build-time configuration)');
-    await testSupabaseConnection();
+  console.log('🔧 Using PostgreSQL');
+  const success = await testPostgresConnection();
+  if (!success) {
+    throw new Error('PostgreSQL connection test failed');
   }
 };

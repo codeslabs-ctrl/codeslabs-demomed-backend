@@ -1,7 +1,6 @@
 import express, { Request, Response } from 'express';
 import authRoutes from './auth.js';
 import dataRoutes from './data.js';
-import supabaseRoutes from './supabase.js';
 import patientRoutes from './patients.js';
 import appointmentRoutes from './appointments.js';
 import remisionRoutes from './remisiones.js';
@@ -48,7 +47,6 @@ router.get('/', (_req: Request, res: Response) => {
             authRecovery: '/auth-recovery',
             views: '/views',
             data: '/data',
-            supabase: '/supabase',
             clinica: '/clinica',
             informesMedicos: '/informes-medicos',
             contextualData: '/contextual-data',
@@ -59,12 +57,12 @@ router.get('/', (_req: Request, res: Response) => {
                    health: '/health'
           },
       documentation: 'https://github.com/your-repo/femimed-backend',
-      supabase: {
-        url: 'https://snxiprwaaxaobjppqnxw.supabase.co',
+      database: {
+        type: 'PostgreSQL',
         tables: [
-          'users', 'pacientes', 'doctors', 'appointments',
-          'medical_records', 'prescriptions', 'medicines',
-          'departments', 'specialties'
+          'usuarios', 'pacientes', 'medicos', 'consultas_pacientes',
+          'historico_pacientes', 'remisiones', 'medicamentos',
+          'especialidades', 'servicios'
         ]
       },
       features: [
@@ -94,7 +92,6 @@ router.use('/mensajes', mensajeRoutes);
 router.use('/auth-recovery', authRecoveryRoutes);
 router.use('/views', viewsRoutes);
 router.use('/data', dataRoutes);
-router.use('/supabase', supabaseRoutes);
 router.use('/clinica', clinicaRoutes);
 router.use('/informes-medicos', informeMedicoRoutes);
 router.use('/contextual-data', contextualDataRoutes);

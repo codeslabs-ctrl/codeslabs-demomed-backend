@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { FirmaService } from '../services/firma.service.js';
-import { supabase } from '../config/database.js';
+import { postgresPool } from '../config/database.js';
 import { ApiResponse } from '../types/index.js';
 
 export class FirmaController {
@@ -41,19 +41,26 @@ export class FirmaController {
         return;
       }
       
-      // Verificar que el médico existe
-      const { data: medico, error: medicoError } = await supabase
-        .from('medicos')
-        .select('id, nombres, apellidos')
-        .eq('id', medicoId)
-        .single();
-      
-      if (medicoError || !medico) {
-        res.status(404).json({
-          success: false,
-          error: { message: 'Médico no encontrado' }
-        } as ApiResponse<null>);
-        return;
+      // Verificar que el médico existe (PostgreSQL)
+      const client = await postgresPool.connect();
+      let medico: any;
+      try {
+        const result = await client.query(
+          'SELECT id, nombres, apellidos FROM medicos WHERE id = $1 LIMIT 1',
+          [medicoId]
+        );
+        
+        if (result.rows.length === 0) {
+          res.status(404).json({
+            success: false,
+            error: { message: 'Médico no encontrado' }
+          } as ApiResponse<null>);
+          return;
+        }
+        
+        medico = result.rows[0];
+      } finally {
+        client.release();
       }
       
       // Eliminar firma anterior si existe
@@ -62,14 +69,15 @@ export class FirmaController {
       // Guardar nueva firma
       const rutaFirma = await this.firmaService.guardarFirma(medicoId, req.file);
       
-      // Actualizar en base de datos
-      const { error: updateError } = await supabase
-        .from('medicos')
-        .update({ firma_digital: rutaFirma })
-        .eq('id', medicoId);
-      
-      if (updateError) {
-        throw new Error(`Error actualizando firma en base de datos: ${updateError.message}`);
+      // Actualizar en base de datos (PostgreSQL)
+      const updateClient = await postgresPool.connect();
+      try {
+        await updateClient.query(
+          'UPDATE medicos SET firma_digital = $1 WHERE id = $2',
+          [rutaFirma, medicoId]
+        );
+      } finally {
+        updateClient.release();
       }
       
       res.json({
@@ -167,14 +175,15 @@ export class FirmaController {
       // Eliminar archivo físico
       await this.firmaService.eliminarFirma(medicoId);
       
-      // Actualizar en base de datos
-      const { error: updateError } = await supabase
-        .from('medicos')
-        .update({ firma_digital: null })
-        .eq('id', medicoId);
-      
-      if (updateError) {
-        throw new Error(`Error actualizando base de datos: ${updateError.message}`);
+      // Actualizar en base de datos (PostgreSQL)
+      const client = await postgresPool.connect();
+      try {
+        await client.query(
+          'UPDATE medicos SET firma_digital = NULL WHERE id = $1',
+          [medicoId]
+        );
+      } finally {
+        client.release();
       }
       
       res.json({

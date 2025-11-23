@@ -1,5 +1,5 @@
 import puppeteer from 'puppeteer';
-import { supabase } from '../config/database';
+import { postgresPool } from '../config/database.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { FirmaService } from './firma.service.js';
@@ -20,27 +20,35 @@ export class PDFService {
     try {
       console.log(`🔄 Generando PDF para informe ${informeId}`);
       
-      // Obtener el informe con datos básicos del médico
-      const { data: informe, error } = await supabase
-        .from('informes_medicos')
-        .select(`
-          *,
-          medicos (
-            nombres,
-            apellidos
-          )
-        `)
-        .eq('id', informeId)
-        .single();
+      // Obtener el informe con datos básicos del médico (PostgreSQL)
+      const client = await postgresPool.connect();
+      let informe: any;
+      try {
+        const result = await client.query(
+          `SELECT 
+            i.*,
+            m.nombres as medico_nombres,
+            m.apellidos as medico_apellidos
+          FROM informes_medicos i
+          LEFT JOIN medicos m ON i.medico_id = m.id
+          WHERE i.id = $1
+          LIMIT 1`,
+          [informeId]
+        );
 
-      if (error) {
-        console.error('❌ Error en consulta Supabase:', error);
-        throw new Error(`Error obteniendo informe: ${error.message}`);
-      }
+        if (result.rows.length === 0) {
+          console.error('❌ No se encontró informe con ID:', informeId);
+          throw new Error('Informe no encontrado');
+        }
 
-      if (!informe) {
-        console.error('❌ No se encontró informe con ID:', informeId);
-        throw new Error('Informe no encontrado');
+        informe = result.rows[0];
+        // Formatear para compatibilidad con el código existente
+        informe.medicos = {
+          nombres: informe.medico_nombres,
+          apellidos: informe.medico_apellidos
+        };
+      } finally {
+        client.release();
       }
 
       console.log('✅ Informe encontrado:', {

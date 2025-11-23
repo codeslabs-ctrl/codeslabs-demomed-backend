@@ -1,7 +1,6 @@
 import { Request, Response } from 'express';
-import { supabase, postgresPool } from '../config/database.js';
+import { postgresPool } from '../config/database.js';
 import { EmailService } from '../services/email.service.js';
-import { USE_POSTGRES } from '../config/database-config.js';
 import { config } from '../config/environment.js';
 
 export class MensajeController {
@@ -11,74 +10,41 @@ export class MensajeController {
       const { page = 1, limit = 10, estado, tipo } = req.query;
       const offset = (Number(page) - 1) * Number(limit);
 
-      let mensajes: any[] = [];
-
-      if (USE_POSTGRES) {
-        const client = await postgresPool.connect();
-        try {
-          let sqlQuery = `
-            SELECT *
-            FROM mensajes_difusion
-            WHERE 1=1
-          `;
-          
-          const params: any[] = [];
-          let paramIndex = 1;
-
-          if (estado) {
-            sqlQuery += ` AND estado = $${paramIndex}`;
-            params.push(estado);
-            paramIndex++;
-          }
-
-          if (tipo) {
-            sqlQuery += ` AND tipo_mensaje = $${paramIndex}`;
-            params.push(tipo);
-            paramIndex++;
-          }
-
-          sqlQuery += ` ORDER BY fecha_creacion DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
-          params.push(Number(limit), offset);
-
-          const result = await client.query(sqlQuery, params);
-          mensajes = result.rows;
-        } finally {
-          client.release();
-        }
-      } else {
-        let query = supabase
-          .from('mensajes_difusion')
-          .select('*')
-          .order('fecha_creacion', { ascending: false })
-          .range(offset, offset + Number(limit) - 1);
+      const client = await postgresPool.connect();
+      try {
+        let sqlQuery = `
+          SELECT *
+          FROM mensajes_difusion
+          WHERE 1=1
+        `;
+        
+        const params: any[] = [];
+        let paramIndex = 1;
 
         if (estado) {
-          query = query.eq('estado', estado);
+          sqlQuery += ` AND estado = $${paramIndex}`;
+          params.push(estado);
+          paramIndex++;
         }
 
         if (tipo) {
-          query = query.eq('tipo_mensaje', tipo);
+          sqlQuery += ` AND tipo_mensaje = $${paramIndex}`;
+          params.push(tipo);
+          paramIndex++;
         }
 
-        const { data, error } = await query;
+        sqlQuery += ` ORDER BY fecha_creacion DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+        params.push(Number(limit), offset);
 
-        if (error) {
-          console.error('Error fetching mensajes:', error);
-          res.status(500).json({
-            success: false,
-            error: { message: 'Error al obtener los mensajes' }
-          });
-          return;
-        }
+        const result = await client.query(sqlQuery, params);
 
-        mensajes = data || [];
+        res.json({
+          success: true,
+          data: result.rows
+        });
+      } finally {
+        client.release();
       }
-
-      res.json({
-        success: true,
-        data: mensajes
-      });
-
     } catch (error) {
       console.error('Error getting mensajes:', error);
       res.status(500).json({
@@ -92,26 +58,36 @@ export class MensajeController {
   static async getMensajeById(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-
-      const { data, error } = await supabase
-        .from('mensajes_difusion')
-        .select('*')
-        .eq('id', id)
-        .single();
-
-      if (error || !data) {
-        res.status(404).json({
+      if (!id) {
+        res.status(400).json({
           success: false,
-          error: { message: 'Mensaje no encontrado' }
+          error: { message: 'ID is required' }
         });
         return;
       }
 
-      res.json({
-        success: true,
-        data: data
-      });
+      const client = await postgresPool.connect();
+      try {
+        const result = await client.query(
+          'SELECT * FROM mensajes_difusion WHERE id = $1',
+          [parseInt(id)]
+        );
 
+        if (result.rows.length === 0) {
+          res.status(404).json({
+            success: false,
+            error: { message: 'Mensaje no encontrado' }
+          });
+          return;
+        }
+
+        res.json({
+          success: true,
+          data: result.rows[0]
+        });
+      } finally {
+        client.release();
+      }
     } catch (error) {
       console.error('Error getting mensaje:', error);
       res.status(500).json({
@@ -134,73 +110,81 @@ export class MensajeController {
         return;
       }
 
-      // Crear el mensaje
-      const clinicaAlias = process.env['CLINICA_ALIAS'];
-      const { data: mensaje, error: mensajeError } = await supabase
-        .from('mensajes_difusion')
-        .insert({
-          titulo,
-          contenido,
-          tipo_mensaje: tipo_mensaje || 'general',
-          estado: fecha_programado ? 'programado' : 'borrador',
-          fecha_programado: fecha_programado || null,
-          creado_por: 1, // TODO: Obtener del token JWT
-          total_destinatarios: destinatarios.length,
-          clinica_alias: clinicaAlias
-        })
-        .select()
-        .single();
+      const clinicaAlias = process.env['CLINICA_ALIAS'] || 'demomed';
+      const client = await postgresPool.connect();
+      try {
+        await client.query('BEGIN');
 
-      if (mensajeError) {
-        console.error('Error creating mensaje:', mensajeError);
+        // Crear el mensaje
+        const mensajeResult = await client.query(
+          `INSERT INTO mensajes_difusion (
+            titulo, contenido, tipo_mensaje, estado, fecha_programado,
+            creado_por, total_destinatarios, clinica_alias
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          RETURNING *`,
+          [
+            titulo,
+            contenido,
+            tipo_mensaje || 'general',
+            fecha_programado ? 'programado' : 'borrador',
+            fecha_programado || null,
+            1, // TODO: Obtener del token JWT
+            destinatarios.length,
+            clinicaAlias
+          ]
+        );
+
+        const mensaje = mensajeResult.rows[0];
+
+        // Obtener emails de los pacientes seleccionados
+        const pacientesResult = await client.query(
+          'SELECT id, email FROM pacientes WHERE id = ANY($1::int[])',
+          [destinatarios]
+        );
+
+        if (pacientesResult.rows.length === 0) {
+          await client.query('ROLLBACK');
+          res.status(400).json({
+            success: false,
+            error: { message: 'No se encontraron pacientes con los IDs proporcionados' }
+          });
+          return;
+        }
+
+        // Crear destinatarios
+        const destinatariosData = pacientesResult.rows
+          .filter((paciente: any) => paciente.id && paciente.email)
+          .map((paciente: any) => ({
+            mensaje_id: mensaje.id,
+            paciente_id: paciente.id,
+            email: paciente.email,
+            estado_envio: 'pendiente'
+          }));
+
+        for (const dest of destinatariosData) {
+          await client.query(
+            `INSERT INTO mensajes_destinatarios (mensaje_id, paciente_id, email, estado_envio)
+             VALUES ($1, $2, $3, $4)`,
+            [dest.mensaje_id, dest.paciente_id, dest.email, dest.estado_envio]
+          );
+        }
+
+        await client.query('COMMIT');
+
+        res.json({
+          success: true,
+          data: mensaje
+        });
+      } catch (error: any) {
+        await client.query('ROLLBACK');
+        console.error('Error creating mensaje:', error);
         res.status(500).json({
           success: false,
           error: { message: 'Error al crear el mensaje' }
         });
-        return;
+      } finally {
+        client.release();
       }
-
-      // Obtener emails de los pacientes seleccionados
-      const { data: pacientes, error: pacientesError } = await supabase
-        .from('pacientes')
-        .select('id, email')
-        .in('id', destinatarios);
-
-      if (pacientesError) {
-        console.error('Error fetching pacientes:', pacientesError);
-        res.status(500).json({
-          success: false,
-          error: { message: 'Error al obtener los pacientes' }
-        });
-        return;
-      }
-
-      // Crear destinatarios
-      const destinatariosData = pacientes.map(paciente => ({
-        mensaje_id: mensaje.id,
-        paciente_id: paciente.id,
-        email: paciente.email,
-        estado_envio: 'pendiente'
-      }));
-
-      const { error: destinatariosError } = await supabase
-        .from('mensajes_destinatarios')
-        .insert(destinatariosData);
-
-      if (destinatariosError) {
-        console.error('Error creating destinatarios:', destinatariosError);
-        res.status(500).json({
-          success: false,
-          error: { message: 'Error al crear los destinatarios' }
-        });
-        return;
-      }
-
-      res.json({
-        success: true,
-        data: mensaje
-      });
-
     } catch (error) {
       console.error('Error creating mensaje:', error);
       res.status(500).json({
@@ -214,35 +198,48 @@ export class MensajeController {
   static async actualizarMensaje(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-      const { titulo, contenido, tipo_mensaje, fecha_programado } = req.body;
-
-      const { data, error } = await supabase
-        .from('mensajes_difusion')
-        .update({
-          titulo,
-          contenido,
-          tipo_mensaje,
-          fecha_programado,
-          estado: fecha_programado ? 'programado' : 'borrador'
-        })
-        .eq('id', id)
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Error updating mensaje:', error);
-        res.status(500).json({
+      if (!id) {
+        res.status(400).json({
           success: false,
-          error: { message: 'Error al actualizar el mensaje' }
+          error: { message: 'ID is required' }
         });
         return;
       }
+      const { titulo, contenido, tipo_mensaje, fecha_programado } = req.body;
 
-      res.json({
-        success: true,
-        data: data
-      });
+      const client = await postgresPool.connect();
+      try {
+        const result = await client.query(
+          `UPDATE mensajes_difusion
+           SET titulo = $1, contenido = $2, tipo_mensaje = $3, fecha_programado = $4,
+               estado = $5, fecha_actualizacion = CURRENT_TIMESTAMP
+           WHERE id = $6
+           RETURNING *`,
+          [
+            titulo ?? '',
+            contenido ?? '',
+            tipo_mensaje ?? '',
+            fecha_programado ?? null,
+            fecha_programado ? 'programado' : 'borrador',
+            parseInt(id)
+          ]
+        );
 
+        if (result.rows.length === 0) {
+          res.status(404).json({
+            success: false,
+            error: { message: 'Mensaje no encontrado' }
+          });
+          return;
+        }
+
+        res.json({
+          success: true,
+          data: result.rows[0]
+        });
+      } finally {
+        client.release();
+      }
     } catch (error) {
       console.error('Error updating mensaje:', error);
       res.status(500).json({
@@ -256,25 +253,54 @@ export class MensajeController {
   static async eliminarMensaje(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
+      if (!id) {
+        res.status(400).json({
+          success: false,
+          error: { message: 'ID is required' }
+        });
+        return;
+      }
 
-      const { error } = await supabase
-        .from('mensajes_difusion')
-        .delete()
-        .eq('id', id);
+      const client = await postgresPool.connect();
+      try {
+        await client.query('BEGIN');
 
-      if (error) {
+        // Eliminar destinatarios primero (por foreign key)
+        await client.query(
+          'DELETE FROM mensajes_destinatarios WHERE mensaje_id = $1',
+          [parseInt(id)]
+        );
+
+        // Eliminar mensaje
+        const result = await client.query(
+          'DELETE FROM mensajes_difusion WHERE id = $1 RETURNING id',
+          [parseInt(id)]
+        );
+
+        if (result.rows.length === 0) {
+          await client.query('ROLLBACK');
+          res.status(404).json({
+            success: false,
+            error: { message: 'Mensaje no encontrado' }
+          });
+          return;
+        }
+
+        await client.query('COMMIT');
+
+        res.json({
+          success: true
+        });
+      } catch (error: any) {
+        await client.query('ROLLBACK');
         console.error('Error deleting mensaje:', error);
         res.status(500).json({
           success: false,
           error: { message: 'Error al eliminar el mensaje' }
         });
-        return;
+      } finally {
+        client.release();
       }
-
-      res.json({
-        success: true
-      });
-
     } catch (error) {
       console.error('Error deleting mensaje:', error);
       res.status(500).json({
@@ -289,55 +315,10 @@ export class MensajeController {
     try {
       const { busqueda, activos } = req.query;
 
-      let pacientes: any[] = [];
-
-      if (USE_POSTGRES) {
-        const client = await postgresPool.connect();
-        try {
-          let sqlQuery = `
-            SELECT 
-              id,
-              nombres,
-              apellidos,
-              email,
-              telefono,
-              edad,
-              sexo,
-              activo,
-              fecha_creacion,
-              cedula
-            FROM pacientes
-            WHERE 1=1
-          `;
-          
-          const params: any[] = [];
-          let paramIndex = 1;
-
-          if (busqueda) {
-            sqlQuery += ` AND (nombres ILIKE $${paramIndex} OR apellidos ILIKE $${paramIndex} OR email ILIKE $${paramIndex})`;
-            params.push(`%${busqueda}%`);
-            paramIndex++;
-          }
-
-          // Filtro por activos
-          if (activos === 'true') {
-            sqlQuery += ` AND activo = true`;
-          } else if (activos === 'false') {
-            sqlQuery += ` AND activo = false`;
-          }
-          // Si no se especifica 'activos', mostrar todos (activos e inactivos)
-
-          sqlQuery += ` ORDER BY nombres ASC`;
-
-          const result = await client.query(sqlQuery, params);
-          pacientes = result.rows;
-        } finally {
-          client.release();
-        }
-      } else {
-        let query = supabase
-          .from('pacientes')
-          .select(`
+      const client = await postgresPool.connect();
+      try {
+        let sqlQuery = `
+          SELECT 
             id,
             nombres,
             apellidos,
@@ -348,58 +329,55 @@ export class MensajeController {
             activo,
             fecha_creacion,
             cedula
-          `)
-          .order('nombres', { ascending: true });
+          FROM pacientes
+          WHERE 1=1
+        `;
+        
+        const params: any[] = [];
+        let paramIndex = 1;
 
         if (busqueda) {
-          query = query.or(`nombres.ilike.%${busqueda}%,apellidos.ilike.%${busqueda}%,email.ilike.%${busqueda}%`);
+          sqlQuery += ` AND (nombres ILIKE $${paramIndex} OR apellidos ILIKE $${paramIndex} OR email ILIKE $${paramIndex})`;
+          params.push(`%${busqueda}%`);
+          paramIndex++;
         }
 
         // Filtro por activos
         if (activos === 'true') {
-          query = query.eq('activo', true);
+          sqlQuery += ` AND activo = true`;
         } else if (activos === 'false') {
-          query = query.eq('activo', false);
+          sqlQuery += ` AND activo = false`;
         }
+        // Si no se especifica 'activos', mostrar todos (activos e inactivos)
 
-        const { data, error } = await query;
+        sqlQuery += ` ORDER BY nombres ASC`;
 
-        if (error) {
-          console.error('Error fetching pacientes:', error);
-          res.status(500).json({
-            success: false,
-            error: { 
-              message: 'Error al obtener los pacientes',
-              details: error.message 
-            }
-          });
-          return;
-        }
+        const result = await client.query(sqlQuery, params);
+        const pacientes = result.rows;
 
-        pacientes = data || [];
-      }
-
-      // Transformar datos para el frontend
-      const pacientesTransformados = pacientes?.map((paciente: any) => ({
-        id: paciente.id,
-        nombres: paciente.nombres,
-        apellidos: paciente.apellidos,
-        email: paciente.email,
-        telefono: paciente.telefono,
-        edad: paciente.edad,
-        sexo: paciente.sexo,
+        // Transformar datos para el frontend
+        const pacientesTransformados = pacientes?.map((paciente: any) => ({
+        id: paciente.id ?? 0,
+        nombres: paciente.nombres ?? '',
+        apellidos: paciente.apellidos ?? '',
+        email: paciente.email ?? '',
+        telefono: paciente.telefono ?? '',
+        edad: paciente.edad ?? 0,
+        sexo: paciente.sexo ?? '',
         activo: paciente.activo,
         cedula: paciente.cedula,
-        medico_nombre: 'Sin médico asignado',
-        especialidad_nombre: 'Sin especialidad',
-        seleccionado: false
-      })) || [];
+          medico_nombre: 'Sin médico asignado',
+          especialidad_nombre: 'Sin especialidad',
+          seleccionado: false
+        })) || [];
 
-      res.json({
-        success: true,
-        data: pacientesTransformados
-      });
-
+        res.json({
+          success: true,
+          data: pacientesTransformados
+        });
+      } finally {
+        client.release();
+      }
     } catch (error) {
       console.error('Error getting pacientes:', error);
       res.status(500).json({
@@ -413,170 +391,180 @@ export class MensajeController {
   static async enviarMensaje(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-
-      // 1. Obtener el mensaje completo
-      const { data: mensaje, error: mensajeError } = await supabase
-        .from('mensajes_difusion')
-        .select('*')
-        .eq('id', id)
-        .single();
-
-      if (mensajeError || !mensaje) {
-        res.status(404).json({
-          success: false,
-          error: { message: 'Mensaje no encontrado' }
-        });
-        return;
-      }
-
-      // 2. Obtener todos los destinatarios con sus emails
-      const { data: destinatarios, error: destinatariosError } = await supabase
-        .from('mensajes_destinatarios')
-        .select(`
-          id,
-          paciente_id,
-          email,
-          estado_envio,
-          pacientes!paciente_id (
-            nombres,
-            apellidos,
-            email
-          )
-        `)
-        .eq('mensaje_id', id);
-
-      if (destinatariosError || !destinatarios || destinatarios.length === 0) {
+      if (!id) {
         res.status(400).json({
           success: false,
-          error: { message: 'No hay destinatarios para este mensaje' }
+          error: { message: 'ID is required' }
         });
         return;
       }
-
-      // 3. Inicializar EmailService
-      const emailService = new EmailService();
-      let enviados = 0;
-      let fallidos = 0;
-
-      // 4. Enviar email a cada destinatario
-      for (const destinatario of destinatarios) {
-        const paciente = Array.isArray(destinatario.pacientes) 
-          ? destinatario.pacientes[0] 
-          : destinatario.pacientes;
-        const email = destinatario.email || paciente?.email;
-        
-        if (!email) {
-          console.warn(`⚠️ Destinatario ${destinatario.paciente_id} no tiene email`);
-          // Actualizar como fallido
-          await supabase
-            .from('mensajes_destinatarios')
-            .update({
-              estado_envio: 'fallido',
-              error_envio: 'Email no disponible'
-            })
-            .eq('id', destinatario.id);
-          fallidos++;
-          continue;
-        }
-
-        // Preparar plantilla del mensaje de difusión
-        const emailTemplate = {
-          subject: mensaje.titulo,
-          html: `
-            <!DOCTYPE html>
-            <html>
-            <head>
-              <meta charset="utf-8">
-              <style>
-                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
-                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                .header { background: linear-gradient(135deg, #E91E63, #C2185B); color: white; padding: 30px 20px; text-align: center; }
-                .content { padding: 20px; background: #f9f9f9; }
-                .message-body { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; }
-                .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
-              </style>
-            </head>
-            <body>
-              <div class="container">
-                <div class="header">
-                  <h1>📧 ${config.sistema.clinicaNombre}</h1>
-                  <h2>${mensaje.titulo}</h2>
-                </div>
-                <div class="content">
-                  <p>Estimado/a <strong>${paciente?.nombres || ''} ${paciente?.apellidos || ''}</strong>,</p>
-                  <div class="message-body">
-                    ${mensaje.contenido}
-                  </div>
-                  <p>Saludos cordiales,<br>Equipo ${config.sistema.clinicaNombre}</p>
-                </div>
-                <div class="footer">
-                  <p>${config.sistema.clinicaNombre}</p>
-                  <p>Este es un mensaje automático, por favor no responder a este email.</p>
-                </div>
-              </div>
-            </body>
-            </html>
-          `,
-          text: mensaje.contenido.replace(/<[^>]*>/g, '') // Versión texto plano
-        };
-
-        // Enviar email
-        const resultadoEnvio = await emailService.sendTemplateEmail(
-          email,
-          emailTemplate,
-          {
-            pacienteNombre: paciente?.nombres || '',
-            pacienteApellidos: paciente?.apellidos || ''
-          }
+      const client = await postgresPool.connect();
+      
+      try {
+        // 1. Obtener el mensaje completo
+        const mensajeResult = await client.query(
+          'SELECT * FROM mensajes_difusion WHERE id = $1',
+          [parseInt(id)]
         );
 
-        // Actualizar estado del destinatario
-        await supabase
-          .from('mensajes_destinatarios')
-          .update({
-            estado_envio: resultadoEnvio ? 'enviado' : 'fallido',
-            fecha_envio: resultadoEnvio ? new Date().toISOString() : null,
-            error_envio: resultadoEnvio ? null : 'Error al enviar email'
-          })
-          .eq('id', destinatario.id);
-
-        if (resultadoEnvio) {
-          enviados++;
-          console.log(`✅ Email enviado exitosamente a ${email}`);
-        } else {
-          fallidos++;
-          console.error(`❌ Error enviando email a ${email}`);
+        if (mensajeResult.rows.length === 0) {
+          res.status(404).json({
+            success: false,
+            error: { message: 'Mensaje no encontrado' }
+          });
+          return;
         }
-      }
 
-      // 5. Actualizar estado del mensaje
-      const { error: updateError } = await supabase
-        .from('mensajes_difusion')
-        .update({
-          estado: 'enviado',
-          fecha_envio: new Date().toISOString(),
-          total_enviados: enviados,
-          total_fallidos: fallidos
-        })
-        .eq('id', id);
+        const mensaje = mensajeResult.rows[0];
 
-      if (updateError) {
-        console.error('Error updating mensaje status:', updateError);
-      }
+        // 2. Obtener todos los destinatarios con sus emails
+        const destinatariosResult = await client.query(
+          `SELECT 
+            md.id,
+            md.paciente_id,
+            md.email,
+            md.estado_envio,
+            p.nombres,
+            p.apellidos,
+            p.email as paciente_email
+          FROM mensajes_destinatarios md
+          LEFT JOIN pacientes p ON md.paciente_id = p.id
+          WHERE md.mensaje_id = $1`,
+          [parseInt(id)]
+        );
 
-      res.json({
-        success: true,
-        data: {
-          mensaje_id: id,
-          total_destinatarios: destinatarios.length,
-          enviados,
-          fallidos,
-          mensaje: enviados > 0 
-            ? `Mensaje enviado a ${enviados} destinatario${enviados !== 1 ? 's' : ''}`
-            : 'Error: No se pudo enviar el mensaje a ningún destinatario'
+        if (destinatariosResult.rows.length === 0) {
+          res.status(400).json({
+            success: false,
+            error: { message: 'No hay destinatarios para este mensaje' }
+          });
+          return;
         }
-      });
 
+        const destinatarios = destinatariosResult.rows;
+
+        // 3. Inicializar EmailService
+        const emailService = new EmailService();
+        let enviados = 0;
+        let fallidos = 0;
+
+        // 4. Enviar email a cada destinatario
+        for (const destinatario of destinatarios) {
+          if (!destinatario.id) {
+            continue; // Skip destinatarios sin id
+          }
+          const email = destinatario.email || destinatario.paciente_email;
+          
+          if (!email) {
+            console.warn(`⚠️ Destinatario ${destinatario.paciente_id} no tiene email`);
+            // Actualizar como fallido
+            await client.query(
+              `UPDATE mensajes_destinatarios
+               SET estado_envio = 'fallido', error_envio = 'Email no disponible'
+               WHERE id = $1`,
+              [destinatario.id]
+            );
+            fallidos++;
+            continue;
+          }
+
+          // Preparar plantilla del mensaje de difusión
+          const emailTemplate = {
+            subject: mensaje.titulo,
+            html: `
+              <!DOCTYPE html>
+              <html>
+              <head>
+                <meta charset="utf-8">
+                <style>
+                  body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+                  .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                  .header { background: linear-gradient(135deg, #E91E63, #C2185B); color: white; padding: 30px 20px; text-align: center; }
+                  .content { padding: 20px; background: #f9f9f9; }
+                  .message-body { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; }
+                  .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+                </style>
+              </head>
+              <body>
+                <div class="container">
+                  <div class="header">
+                    <h1>📧 ${config.sistema.clinicaNombre}</h1>
+                    <h2>${mensaje.titulo}</h2>
+                  </div>
+                  <div class="content">
+                    <p>Estimado/a <strong>${destinatario.nombres || ''} ${destinatario.apellidos || ''}</strong>,</p>
+                    <div class="message-body">
+                      ${mensaje.contenido}
+                    </div>
+                    <p>Saludos cordiales,<br>Equipo ${config.sistema.clinicaNombre}</p>
+                  </div>
+                  <div class="footer">
+                    <p>${config.sistema.clinicaNombre}</p>
+                    <p>Este es un mensaje automático, por favor no responder a este email.</p>
+                  </div>
+                </div>
+              </body>
+              </html>
+            `,
+            text: mensaje.contenido.replace(/<[^>]*>/g, '') // Versión texto plano
+          };
+
+          // Enviar email
+          const resultadoEnvio = await emailService.sendTemplateEmail(
+            email,
+            emailTemplate,
+            {
+              pacienteNombre: destinatario.nombres || '',
+              pacienteApellidos: destinatario.apellidos || ''
+            }
+          );
+
+          // Actualizar estado del destinatario
+          await client.query(
+            `UPDATE mensajes_destinatarios
+             SET estado_envio = $1, fecha_envio = $2, error_envio = $3
+             WHERE id = $4`,
+            [
+              resultadoEnvio ? 'enviado' : 'fallido',
+              resultadoEnvio ? new Date() : null,
+              resultadoEnvio ? null : 'Error al enviar email',
+              destinatario.id
+            ]
+          );
+
+          if (resultadoEnvio) {
+            enviados++;
+            console.log(`✅ Email enviado exitosamente a ${email}`);
+          } else {
+            fallidos++;
+            console.error(`❌ Error enviando email a ${email}`);
+          }
+        }
+
+        // 5. Actualizar estado del mensaje
+        await client.query(
+          `UPDATE mensajes_difusion
+           SET estado = 'enviado', fecha_envio = CURRENT_TIMESTAMP,
+               total_enviados = $1, total_fallidos = $2
+           WHERE id = $3`,
+          [enviados, fallidos, parseInt(id)]
+        );
+
+        res.json({
+          success: true,
+          data: {
+            mensaje_id: id,
+            total_destinatarios: destinatarios.length,
+            enviados,
+            fallidos,
+            mensaje: enviados > 0 
+              ? `Mensaje enviado a ${enviados} destinatario${enviados !== 1 ? 's' : ''}`
+              : 'Error: No se pudo enviar el mensaje a ningún destinatario'
+          }
+        });
+      } finally {
+        client.release();
+      }
     } catch (error) {
       console.error('Error sending mensaje:', error);
       res.status(500).json({
@@ -590,29 +578,39 @@ export class MensajeController {
   static async programarMensaje(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-      const { fecha_programado } = req.body;
-
-      const { error } = await supabase
-        .from('mensajes_difusion')
-        .update({
-          estado: 'programado',
-          fecha_programado: fecha_programado
-        })
-        .eq('id', id);
-
-      if (error) {
-        console.error('Error scheduling mensaje:', error);
-        res.status(500).json({
+      if (!id) {
+        res.status(400).json({
           success: false,
-          error: { message: 'Error al programar el mensaje' }
+          error: { message: 'ID is required' }
         });
         return;
       }
+      const { fecha_programado } = req.body;
 
-      res.json({
-        success: true
-      });
+      const client = await postgresPool.connect();
+      try {
+        const result = await client.query(
+          `UPDATE mensajes_difusion
+           SET estado = 'programado', fecha_programado = $1, fecha_actualizacion = CURRENT_TIMESTAMP
+           WHERE id = $2
+           RETURNING id`,
+          [fecha_programado, parseInt(id)]
+        );
 
+        if (result.rows.length === 0) {
+          res.status(404).json({
+            success: false,
+            error: { message: 'Mensaje no encontrado' }
+          });
+          return;
+        }
+
+        res.json({
+          success: true
+        });
+      } finally {
+        client.release();
+      }
     } catch (error) {
       console.error('Error scheduling mensaje:', error);
       res.status(500).json({
@@ -626,33 +624,35 @@ export class MensajeController {
   static async getDestinatarios(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-
-      const { data, error } = await supabase
-        .from('mensajes_destinatarios')
-        .select(`
-          *,
-          pacientes!paciente_id (
-            nombres,
-            apellidos,
-            email
-          )
-        `)
-        .eq('mensaje_id', id);
-
-      if (error) {
-        console.error('Error fetching destinatarios:', error);
-        res.status(500).json({
+      if (!id) {
+        res.status(400).json({
           success: false,
-          error: { message: 'Error al obtener los destinatarios' }
+          error: { message: 'ID is required' }
         });
         return;
       }
 
-      res.json({
-        success: true,
-        data: data || []
-      });
+      const client = await postgresPool.connect();
+      try {
+        const result = await client.query(
+          `SELECT 
+            md.*,
+            p.nombres,
+            p.apellidos,
+            p.email as paciente_email
+          FROM mensajes_destinatarios md
+          LEFT JOIN pacientes p ON md.paciente_id = p.id
+          WHERE md.mensaje_id = $1`,
+          [parseInt(id)]
+        );
 
+        res.json({
+          success: true,
+          data: result.rows || []
+        });
+      } finally {
+        client.release();
+      }
     } catch (error) {
       console.error('Error getting destinatarios:', error);
       res.status(500).json({
@@ -666,59 +666,58 @@ export class MensajeController {
   static async getDestinatariosActuales(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-
-      const { data, error } = await supabase
-        .from('mensajes_destinatarios')
-        .select(`
-          id,
-          paciente_id,
-          estado_envio,
-          pacientes!paciente_id (
-            id,
-            nombres,
-            apellidos,
-            email,
-            telefono,
-            edad,
-            sexo,
-            activo,
-            cedula
-          )
-        `)
-        .eq('mensaje_id', id);
-
-      if (error) {
-        console.error('Error fetching destinatarios actuales:', error);
-        res.status(500).json({
+      if (!id) {
+        res.status(400).json({
           success: false,
-          error: { message: 'Error al obtener los destinatarios actuales' }
+          error: { message: 'ID is required' }
         });
         return;
       }
 
-      // Transformar datos para el frontend
-      const destinatariosTransformados = data?.map(dest => {
-        const paciente = Array.isArray(dest.pacientes) ? dest.pacientes[0] : dest.pacientes;
-        return {
-          id: paciente?.id,
-          nombres: paciente?.nombres,
-          apellidos: paciente?.apellidos,
-          email: paciente?.email,
-          telefono: paciente?.telefono,
-          edad: paciente?.edad,
-          sexo: paciente?.sexo,
-          activo: paciente?.activo,
-          cedula: paciente?.cedula,
+      const client = await postgresPool.connect();
+      try {
+        const result = await client.query(
+          `SELECT 
+            md.id,
+            md.paciente_id,
+            md.estado_envio,
+            p.id as paciente_id_full,
+            p.nombres,
+            p.apellidos,
+            p.email,
+            p.telefono,
+            p.edad,
+            p.sexo,
+            p.activo,
+            p.cedula
+          FROM mensajes_destinatarios md
+          LEFT JOIN pacientes p ON md.paciente_id = p.id
+          WHERE md.mensaje_id = $1`,
+          [parseInt(id)]
+        );
+
+        // Transformar datos para el frontend
+        const destinatariosTransformados = result.rows.map(dest => ({
+          id: dest.paciente_id_full,
+          nombres: dest.nombres,
+          apellidos: dest.apellidos,
+          email: dest.email,
+          telefono: dest.telefono,
+          edad: dest.edad,
+          sexo: dest.sexo,
+          activo: dest.activo,
+          cedula: dest.cedula,
           estado_envio: dest.estado_envio,
           seleccionado: true // Ya están seleccionados
-        };
-      }) || [];
+        }));
 
-      res.json({
-        success: true,
-        data: destinatariosTransformados
-      });
-
+        res.json({
+          success: true,
+          data: destinatariosTransformados
+        });
+      } finally {
+        client.release();
+      }
     } catch (error) {
       console.error('Error getting destinatarios actuales:', error);
       res.status(500).json({
@@ -732,6 +731,13 @@ export class MensajeController {
   static async agregarDestinatarios(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
+      if (!id) {
+        res.status(400).json({
+          success: false,
+          error: { message: 'ID is required' }
+        });
+        return;
+      }
       const { destinatarios } = req.body; // Array de IDs de pacientes
 
       if (!destinatarios || !Array.isArray(destinatarios)) {
@@ -742,70 +748,70 @@ export class MensajeController {
         return;
       }
 
-      // Obtener emails de los pacientes
-      const { data: pacientes, error: pacientesError } = await supabase
-        .from('pacientes')
-        .select('id, email')
-        .in('id', destinatarios);
+      const client = await postgresPool.connect();
+      try {
+        await client.query('BEGIN');
 
-      if (pacientesError) {
-        console.error('Error fetching pacientes:', pacientesError);
-        res.status(500).json({
-          success: false,
-          error: { message: 'Error al obtener los pacientes' }
+        // Obtener emails de los pacientes
+        const pacientesResult = await client.query(
+          'SELECT id, email FROM pacientes WHERE id = ANY($1::int[])',
+          [destinatarios]
+        );
+
+        if (pacientesResult.rows.length === 0) {
+          await client.query('ROLLBACK');
+          res.status(400).json({
+            success: false,
+            error: { message: 'No se encontraron pacientes con los IDs proporcionados' }
+          });
+          return;
+        }
+
+        // Crear destinatarios
+        for (const paciente of pacientesResult.rows) {
+          if (!paciente.id || !paciente.email) {
+            continue; // Skip pacientes sin id o email
+          }
+          await client.query(
+            `INSERT INTO mensajes_destinatarios (mensaje_id, paciente_id, email, estado_envio)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT DO NOTHING`,
+            [parseInt(id), paciente.id, paciente.email, 'pendiente']
+          );
+        }
+
+        // Actualizar total_destinatarios en la tabla mensajes
+        const countResult = await client.query(
+          'SELECT COUNT(*) as count FROM mensajes_destinatarios WHERE mensaje_id = $1',
+          [parseInt(id)]
+        );
+
+        const destinatariosCount = parseInt(countResult.rows[0].count);
+        console.log('Destinatarios count:', destinatariosCount, 'for mensaje:', id);
+
+        await client.query(
+          'UPDATE mensajes_difusion SET total_destinatarios = $1 WHERE id = $2',
+          [destinatariosCount, parseInt(id)]
+        );
+
+        await client.query('COMMIT');
+
+        console.log('Successfully updated total_destinatarios to:', destinatariosCount);
+
+        res.json({
+          success: true,
+          data: { message: 'Destinatarios agregados exitosamente' }
         });
-        return;
-      }
-
-      // Crear destinatarios
-      const destinatariosData = pacientes.map(paciente => ({
-        mensaje_id: parseInt(id!),
-        paciente_id: paciente.id,
-        email: paciente.email,
-        estado_envio: 'pendiente'
-      }));
-
-      const { error: insertError } = await supabase
-        .from('mensajes_destinatarios')
-        .insert(destinatariosData);
-
-      if (insertError) {
-        console.error('Error creating destinatarios:', insertError);
+      } catch (error: any) {
+        await client.query('ROLLBACK');
+        console.error('Error adding destinatarios:', error);
         res.status(500).json({
           success: false,
           error: { message: 'Error al agregar los destinatarios' }
         });
-        return;
+      } finally {
+        client.release();
       }
-
-      // Actualizar total_destinatarios en la tabla mensajes
-      const { count: destinatariosCount, error: countError } = await supabase
-        .from('mensajes_destinatarios')
-        .select('*', { count: 'exact', head: true })
-        .eq('mensaje_id', id);
-
-      console.log('Destinatarios count:', destinatariosCount, 'for mensaje:', id);
-
-      if (!countError) {
-        const { error: updateError } = await supabase
-          .from('mensajes_difusion')
-          .update({ total_destinatarios: destinatariosCount || 0 })
-          .eq('id', id);
-        
-        if (updateError) {
-          console.error('Error updating total_destinatarios:', updateError);
-        } else {
-          console.log('Successfully updated total_destinatarios to:', destinatariosCount);
-        }
-      } else {
-        console.error('Error counting destinatarios:', countError);
-      }
-
-      res.json({
-        success: true,
-        data: { message: 'Destinatarios agregados exitosamente' }
-      });
-
     } catch (error) {
       console.error('Error adding destinatarios:', error);
       res.status(500).json({
@@ -819,40 +825,62 @@ export class MensajeController {
   static async eliminarDestinatario(req: Request, res: Response): Promise<void> {
     try {
       const { id, pacienteId } = req.params;
+      if (!id || !pacienteId) {
+        res.status(400).json({
+          success: false,
+          error: { message: 'ID and pacienteId are required' }
+        });
+        return;
+      }
 
-      const { error } = await supabase
-        .from('mensajes_destinatarios')
-        .delete()
-        .eq('mensaje_id', id)
-        .eq('paciente_id', pacienteId);
+      const client = await postgresPool.connect();
+      try {
+        await client.query('BEGIN');
 
-      if (error) {
+        // Eliminar destinatario
+        const deleteResult = await client.query(
+          'DELETE FROM mensajes_destinatarios WHERE mensaje_id = $1 AND paciente_id = $2 RETURNING id',
+          [parseInt(id), parseInt(pacienteId)]
+        );
+
+        if (deleteResult.rows.length === 0) {
+          await client.query('ROLLBACK');
+          res.status(404).json({
+            success: false,
+            error: { message: 'Destinatario no encontrado' }
+          });
+          return;
+        }
+
+        // Actualizar total_destinatarios en la tabla mensajes
+        const countResult = await client.query(
+          'SELECT COUNT(*) as count FROM mensajes_destinatarios WHERE mensaje_id = $1',
+          [parseInt(id)]
+        );
+
+        const destinatariosCount = parseInt(countResult.rows[0].count);
+
+        await client.query(
+          'UPDATE mensajes_difusion SET total_destinatarios = $1 WHERE id = $2',
+          [destinatariosCount, parseInt(id)]
+        );
+
+        await client.query('COMMIT');
+
+        res.json({
+          success: true,
+          data: { message: 'Destinatario eliminado exitosamente' }
+        });
+      } catch (error: any) {
+        await client.query('ROLLBACK');
         console.error('Error deleting destinatario:', error);
         res.status(500).json({
           success: false,
           error: { message: 'Error al eliminar el destinatario' }
         });
-        return;
+      } finally {
+        client.release();
       }
-
-      // Actualizar total_destinatarios en la tabla mensajes
-      const { count: destinatariosCount, error: countError } = await supabase
-        .from('mensajes_destinatarios')
-        .select('*', { count: 'exact', head: true })
-        .eq('mensaje_id', id);
-
-      if (!countError) {
-        await supabase
-          .from('mensajes_difusion')
-          .update({ total_destinatarios: destinatariosCount || 0 })
-          .eq('id', id);
-      }
-
-      res.json({
-        success: true,
-        data: { message: 'Destinatario eliminado exitosamente' }
-      });
-
     } catch (error) {
       console.error('Error deleting destinatario:', error);
       res.status(500).json({
@@ -866,54 +894,59 @@ export class MensajeController {
   static async diagnosticarDestinatarios(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-      
-      // Obtener mensaje
-      const { data: mensaje, error: mensajeError } = await supabase
-        .from('mensajes_difusion')
-        .select('id, titulo, total_destinatarios')
-        .eq('id', id)
-        .single();
-
-      if (mensajeError) {
-        console.error('Error fetching mensaje:', mensajeError);
-        res.status(500).json({
+      if (!id) {
+        res.status(400).json({
           success: false,
-          error: { message: 'Error al obtener el mensaje' }
+          error: { message: 'ID is required' }
         });
         return;
       }
+      
+      const client = await postgresPool.connect();
+      try {
+        // Obtener mensaje
+        const mensajeResult = await client.query(
+          'SELECT id, titulo, total_destinatarios FROM mensajes_difusion WHERE id = $1',
+          [parseInt(id)]
+        );
 
-      // Contar destinatarios reales
-      const { count: destinatariosReales, error: countError } = await supabase
-        .from('mensajes_destinatarios')
-        .select('*', { count: 'exact', head: true })
-        .eq('mensaje_id', id);
-
-      if (countError) {
-        console.error('Error counting destinatarios:', countError);
-      }
-
-      // Obtener lista de destinatarios
-      const { data: destinatariosLista, error: listaError } = await supabase
-        .from('mensajes_destinatarios')
-        .select('id, paciente_id, estado_envio')
-        .eq('mensaje_id', id);
-
-      if (listaError) {
-        console.error('Error fetching destinatarios list:', listaError);
-      }
-
-      res.json({
-        success: true,
-        data: {
-          mensaje: mensaje,
-          contador_actual: mensaje.total_destinatarios,
-          destinatarios_reales: destinatariosReales || 0,
-          destinatarios_lista: destinatariosLista || [],
-          sincronizado: mensaje.total_destinatarios === (destinatariosReales || 0)
+        if (mensajeResult.rows.length === 0) {
+          res.status(404).json({
+            success: false,
+            error: { message: 'Mensaje no encontrado' }
+          });
+          return;
         }
-      });
 
+        const mensaje = mensajeResult.rows[0];
+
+        // Contar destinatarios reales
+        const countResult = await client.query(
+          'SELECT COUNT(*) as count FROM mensajes_destinatarios WHERE mensaje_id = $1',
+          [parseInt(id)]
+        );
+
+        const destinatariosReales = parseInt(countResult.rows[0].count);
+
+        // Obtener lista de destinatarios
+        const listaResult = await client.query(
+          'SELECT id, paciente_id, estado_envio FROM mensajes_destinatarios WHERE mensaje_id = $1',
+          [parseInt(id)]
+        );
+
+        res.json({
+          success: true,
+          data: {
+            mensaje: mensaje,
+            contador_actual: mensaje.total_destinatarios,
+            destinatarios_reales: destinatariosReales,
+            destinatarios_lista: listaResult.rows || [],
+            sincronizado: mensaje.total_destinatarios === destinatariosReales
+          }
+        });
+      } finally {
+        client.release();
+      }
     } catch (error) {
       console.error('Error diagnosing destinatarios:', error);
       res.status(500).json({
@@ -926,42 +959,35 @@ export class MensajeController {
   // Sincronizar contadores de destinatarios
   static async sincronizarContadores(_req: Request, res: Response): Promise<void> {
     try {
-      // Obtener todos los mensajes
-      const { data: mensajes, error: mensajesError } = await supabase
-        .from('mensajes_difusion')
-        .select('id');
+      const client = await postgresPool.connect();
+      try {
+        // Obtener todos los mensajes
+        const mensajesResult = await client.query('SELECT id FROM mensajes_difusion');
 
-      if (mensajesError) {
-        console.error('Error fetching mensajes:', mensajesError);
-        res.status(500).json({
-          success: false,
-          error: { message: 'Error al obtener mensajes' }
-        });
-        return;
-      }
+        // Para cada mensaje, contar destinatarios y actualizar
+        for (const mensaje of mensajesResult.rows) {
+          const countResult = await client.query(
+            'SELECT COUNT(*) as count FROM mensajes_destinatarios WHERE mensaje_id = $1',
+            [mensaje.id]
+          );
 
-      // Para cada mensaje, contar destinatarios y actualizar
-      for (const mensaje of mensajes || []) {
-        const { count: destinatariosCount, error: countError } = await supabase
-          .from('mensajes_destinatarios')
-          .select('*', { count: 'exact', head: true })
-          .eq('mensaje_id', mensaje.id);
+          const destinatariosCount = parseInt(countResult.rows[0].count);
 
-        if (!countError) {
-          await supabase
-            .from('mensajes_difusion')
-            .update({ total_destinatarios: destinatariosCount || 0 })
-            .eq('id', mensaje.id);
+          await client.query(
+            'UPDATE mensajes_difusion SET total_destinatarios = $1 WHERE id = $2',
+            [destinatariosCount, mensaje.id]
+          );
           
           console.log(`Updated mensaje ${mensaje.id} with ${destinatariosCount} destinatarios`);
         }
+
+        res.json({
+          success: true,
+          data: { message: 'Contadores sincronizados exitosamente' }
+        });
+      } finally {
+        client.release();
       }
-
-      res.json({
-        success: true,
-        data: { message: 'Contadores sincronizados exitosamente' }
-      });
-
     } catch (error) {
       console.error('Error syncing counters:', error);
       res.status(500).json({
@@ -974,34 +1000,31 @@ export class MensajeController {
   // Obtener estadísticas
   static async getEstadisticas(_req: Request, res: Response): Promise<void> {
     try {
-      // Obtener estadísticas básicas
-      const { data: mensajes, error: mensajesError } = await supabase
-        .from('mensajes_difusion')
-        .select('estado, total_destinatarios, total_enviados, total_fallidos');
+      const client = await postgresPool.connect();
+      try {
+        // Obtener estadísticas básicas
+        const result = await client.query(
+          'SELECT estado, total_destinatarios, total_enviados, total_fallidos FROM mensajes_difusion'
+        );
 
-      if (mensajesError) {
-        console.error('Error fetching estadisticas:', mensajesError);
-        res.status(500).json({
-          success: false,
-          error: { message: 'Error al obtener las estadísticas' }
+        const mensajes = result.rows;
+
+        const estadisticas = {
+          total_mensajes: mensajes.length || 0,
+          mensajes_enviados: mensajes.filter(m => m.estado === 'enviado').length || 0,
+          mensajes_programados: mensajes.filter(m => m.estado === 'programado').length || 0,
+          mensajes_borrador: mensajes.filter(m => m.estado === 'borrador').length || 0,
+          total_destinatarios: mensajes.reduce((sum, m) => sum + (m.total_destinatarios || 0), 0) || 0,
+          tasa_entrega: 0 // TODO: Calcular basado en total_enviados vs total_destinatarios
+        };
+
+        res.json({
+          success: true,
+          data: estadisticas
         });
-        return;
+      } finally {
+        client.release();
       }
-
-      const estadisticas = {
-        total_mensajes: mensajes?.length || 0,
-        mensajes_enviados: mensajes?.filter(m => m.estado === 'enviado').length || 0,
-        mensajes_programados: mensajes?.filter(m => m.estado === 'programado').length || 0,
-        mensajes_borrador: mensajes?.filter(m => m.estado === 'borrador').length || 0,
-        total_destinatarios: mensajes?.reduce((sum, m) => sum + (m.total_destinatarios || 0), 0) || 0,
-        tasa_entrega: 0 // TODO: Calcular basado en total_enviados vs total_destinatarios
-      };
-
-      res.json({
-        success: true,
-        data: estadisticas
-      });
-
     } catch (error) {
       console.error('Error getting estadisticas:', error);
       res.status(500).json({
@@ -1015,49 +1038,55 @@ export class MensajeController {
   static async duplicarMensaje(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-
-      // Obtener mensaje original
-      const { data: mensajeOriginal, error: fetchError } = await supabase
-        .from('mensajes_difusion')
-        .select('*')
-        .eq('id', id)
-        .single();
-
-      if (fetchError || !mensajeOriginal) {
-        res.status(404).json({
+      if (!id) {
+        res.status(400).json({
           success: false,
-          error: { message: 'Mensaje no encontrado' }
+          error: { message: 'ID is required' }
         });
         return;
       }
 
-      // Crear copia
-      const { data: mensajeCopia, error: createError } = await supabase
-        .from('mensajes_difusion')
-        .insert({
-          titulo: `${mensajeOriginal.titulo} (Copia)`,
-          contenido: mensajeOriginal.contenido,
-          tipo_mensaje: mensajeOriginal.tipo_mensaje,
-          estado: 'borrador',
-          creado_por: mensajeOriginal.creado_por
-        })
-        .select()
-        .single();
+      const client = await postgresPool.connect();
+      try {
+        // Obtener mensaje original
+        const originalResult = await client.query(
+          'SELECT * FROM mensajes_difusion WHERE id = $1',
+          [parseInt(id)]
+        );
 
-      if (createError) {
-        console.error('Error duplicating mensaje:', createError);
-        res.status(500).json({
-          success: false,
-          error: { message: 'Error al duplicar el mensaje' }
+        if (originalResult.rows.length === 0) {
+          res.status(404).json({
+            success: false,
+            error: { message: 'Mensaje no encontrado' }
+          });
+          return;
+        }
+
+        const mensajeOriginal = originalResult.rows[0];
+
+        // Crear copia
+        const copyResult = await client.query(
+          `INSERT INTO mensajes_difusion (
+            titulo, contenido, tipo_mensaje, estado, creado_por, clinica_alias
+          ) VALUES ($1, $2, $3, $4, $5, $6)
+          RETURNING *`,
+          [
+            `${mensajeOriginal.titulo} (Copia)`,
+            mensajeOriginal.contenido,
+            mensajeOriginal.tipo_mensaje,
+            'borrador',
+            mensajeOriginal.creado_por,
+            mensajeOriginal.clinica_alias || process.env['CLINICA_ALIAS'] || 'demomed'
+          ]
+        );
+
+        res.json({
+          success: true,
+          data: copyResult.rows[0]
         });
-        return;
+      } finally {
+        client.release();
       }
-
-      res.json({
-        success: true,
-        data: mensajeCopia
-      });
-
     } catch (error) {
       console.error('Error duplicating mensaje:', error);
       res.status(500).json({

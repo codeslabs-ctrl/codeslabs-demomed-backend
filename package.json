@@ -1,15 +1,13 @@
 {
   "name": "femimed-backend",
   "version": "1.0.0",
-  "description": "Modern Node.js Express backend with Supabase integration",
+  "description": "Modern Node.js Express backend with PostgreSQL",
   "main": "dist/server.js",
   "scripts": {
     "start": "node dist/server.js",
     "dev": "tsx watch src/server.ts",
     "prebuild": "node scripts/generate-db-config.js",
     "build": "tsc && npm run copy:assets",
-    "build:postgres": "cross-env USE_POSTGRES=true npm run build",
-    "build:supabase": "cross-env USE_POSTGRES=false npm run build",
     "build:watch": "tsc --watch",
     "copy:assets": "node scripts/copy-assets.js",
     "test": "jest",
@@ -20,7 +18,7 @@
   },
   "keywords": [
     "express",
-    "supabase",
+    "postgresql",
     "nodejs",
     "api",
     "typescript"
@@ -28,7 +26,6 @@
   "author": "FemiMed",
   "license": "MIT",
   "dependencies": {
-    "@supabase/supabase-js": "^2.39.0",
     "@types/bcrypt": "^6.0.0",
     "@types/multer": "^2.0.0",
     "@types/nodemailer": "^7.0.2",

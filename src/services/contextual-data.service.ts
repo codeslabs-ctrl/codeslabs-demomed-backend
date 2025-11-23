@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { postgresPool } from '../config/database.js';
 
 export interface DatosPaciente {
   id: number;
@@ -89,68 +89,75 @@ export class ContextualDataService {
   private async obtenerDatosPaciente(pacienteId: number, _clinicaAlias: string): Promise<DatosPaciente> {
     console.log(`🔍 Obteniendo datos del paciente ${pacienteId}`);
     
-    const { data, error } = await supabase
-      .from('pacientes')
-      .select('*')
-      .eq('id', pacienteId)
-      .single();
+    const client = await postgresPool.connect();
+    try {
+      const result = await client.query(
+        'SELECT * FROM pacientes WHERE id = $1 LIMIT 1',
+        [pacienteId]
+      );
 
-    console.log(`📊 Datos del paciente obtenidos:`, { data, error });
+      if (result.rows.length === 0) {
+        throw new Error('Paciente no encontrado');
+      }
 
-    if (error) {
-      throw new Error(`Error obteniendo datos del paciente: ${error.message}`);
+      const data = result.rows[0];
+      console.log(`📊 Datos del paciente obtenidos:`, data);
+      console.log(`👤 Edad del paciente en BD:`, data.edad);
+      console.log(`📅 Fecha de nacimiento en BD:`, data.fecha_nacimiento);
+
+      return {
+        id: data.id,
+        nombres: data.nombres,
+        apellidos: data.apellidos,
+        edad: data.edad || 0,
+        cedula: data.cedula,
+        telefono: data.telefono,
+        email: data.email,
+        direccion: data.direccion,
+        fecha_nacimiento: data.fecha_nacimiento
+      };
+    } finally {
+      client.release();
     }
-
-    console.log(`👤 Edad del paciente en BD:`, data.edad);
-    console.log(`📅 Fecha de nacimiento en BD:`, data.fecha_nacimiento);
-
-    return {
-      id: data.id,
-      nombres: data.nombres,
-      apellidos: data.apellidos,
-      edad: data.edad || 0, // Usar el campo edad directamente
-      cedula: data.cedula,
-      telefono: data.telefono,
-      email: data.email,
-      direccion: data.direccion,
-      fecha_nacimiento: data.fecha_nacimiento
-    };
   }
 
   /**
    * Obtiene datos del médico
    */
   private async obtenerDatosMedico(medicoId: number, clinicaAlias: string): Promise<DatosMedico> {
-    const { data, error } = await supabase
-      .from('medicos_clinicas')
-      .select(`
-        *,
-        medicos (
-          id, nombres, apellidos, email, telefono, especialidad_id,
-          especialidades!inner (
-            nombre_especialidad
-          )
-        )
-      `)
-      .eq('medico_id', medicoId)
-      .eq('clinica_alias', clinicaAlias)
-      .eq('activo', true)
-      .single();
+    const client = await postgresPool.connect();
+    try {
+      const result = await client.query(
+        `SELECT 
+          m.id, m.nombres, m.apellidos, m.email, m.telefono, m.especialidad_id, m.cedula_profesional,
+          e.nombre_especialidad
+        FROM medicos_clinicas mc
+        INNER JOIN medicos m ON mc.medico_id = m.id
+        LEFT JOIN especialidades e ON m.especialidad_id = e.id
+        WHERE mc.medico_id = $1
+          AND mc.clinica_alias = $2
+          AND mc.activo = true
+        LIMIT 1`,
+        [medicoId, clinicaAlias]
+      );
 
-    if (error) {
-      throw new Error(`Error obteniendo datos del médico: ${error.message}`);
+      if (result.rows.length === 0) {
+        throw new Error('Médico no encontrado');
+      }
+
+      const medico = result.rows[0];
+      return {
+        id: medico.id,
+        nombres: medico.nombres,
+        apellidos: medico.apellidos,
+        especialidad: medico.nombre_especialidad || 'No especificada',
+        cedula_profesional: medico.cedula_profesional,
+        telefono: medico.telefono,
+        email: medico.email
+      };
+    } finally {
+      client.release();
     }
-
-    const medico = data.medicos;
-    return {
-      id: medico.id,
-      nombres: medico.nombres,
-      apellidos: medico.apellidos,
-      especialidad: medico.especialidades?.nombre_especialidad || 'No especificada',
-      cedula_profesional: medico.cedula_profesional,
-      telefono: medico.telefono,
-      email: medico.email
-    };
   }
 
   /**
@@ -163,39 +170,40 @@ export class ContextualDataService {
   ): Promise<UltimoInforme | undefined> {
     console.log(`🔍 Buscando último historial para paciente ${pacienteId}, médico ${medicoId}, clínica ${clinicaAlias}`);
     
-    const { data, error } = await supabase
-      .from('historico_pacientes')
-      .select('*')
-      .eq('paciente_id', pacienteId)
-      .eq('medico_id', medicoId)
-      .or(`clinica_alias.eq.${clinicaAlias},clinica_alias.is.null`)
-      .order('fecha_consulta', { ascending: false })
-      .limit(1)
-      .single();
+    const client = await postgresPool.connect();
+    try {
+      const result = await client.query(
+        `SELECT * FROM historico_pacientes
+         WHERE paciente_id = $1
+           AND medico_id = $2
+           AND (clinica_alias = $3 OR clinica_alias IS NULL)
+         ORDER BY fecha_consulta DESC
+         LIMIT 1`,
+        [pacienteId, medicoId, clinicaAlias]
+      );
 
-    console.log(`📊 Resultado de la consulta en historico_pacientes:`, { data, error });
+      console.log(`📊 Resultado de la consulta en historico_pacientes:`, result.rows);
 
-    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
-      console.error(`❌ Error obteniendo último historial:`, error);
-      throw new Error(`Error obteniendo último historial: ${error.message}`);
+      if (result.rows.length === 0) {
+        console.log(`⚠️ No se encontró último historial`);
+        return undefined;
+      }
+
+      const data = result.rows[0];
+      console.log(`✅ Historial encontrado:`, data);
+
+      return {
+        id: data.id,
+        motivo_consulta: data.motivo_consulta || '',
+        diagnostico: data.diagnostico || '',
+        tratamiento: data.plan || '',
+        conclusiones: data.conclusiones || '',
+        fecha_consulta: data.fecha_consulta,
+        fecha_emision: data.fecha_creacion
+      };
+    } finally {
+      client.release();
     }
-
-    if (!data) {
-      console.log(`⚠️ No se encontró último historial`);
-      return undefined;
-    }
-
-    console.log(`✅ Historial encontrado:`, data);
-
-    return {
-      id: data.id,
-      motivo_consulta: data.motivo_consulta || '',
-      diagnostico: data.diagnostico || '',
-      tratamiento: data.plan || '', // Mapear 'plan' a 'tratamiento'
-      conclusiones: data.conclusiones || '',
-      fecha_consulta: data.fecha_consulta,
-      fecha_emision: data.fecha_creacion // Usar fecha_creacion como fecha_emision
-    };
   }
 
   /**
@@ -208,44 +216,45 @@ export class ContextualDataService {
   ): Promise<UltimoInforme[]> {
     console.log(`🔍 Buscando historial de consultas para paciente ${pacienteId}, médico ${medicoId}, clínica ${clinicaAlias}`);
     
-    // Primero verificar si hay datos sin filtro de clínica
-    const { data: allData, error: allError } = await supabase
-      .from('historico_pacientes')
-      .select('*')
-      .eq('paciente_id', pacienteId)
-      .eq('medico_id', medicoId);
-    
-    console.log(`📊 Datos sin filtro de clínica:`, { data: allData, error: allError });
-    
-    // Luego con el filtro de clínica (manejar caso cuando clinica_alias es null)
-    const { data, error } = await supabase
-      .from('historico_pacientes')
-      .select('*')
-      .eq('paciente_id', pacienteId)
-      .eq('medico_id', medicoId)
-      .or(`clinica_alias.eq.${clinicaAlias},clinica_alias.is.null`)
-      .order('fecha_consulta', { ascending: false })
-      .limit(5);
+    const client = await postgresPool.connect();
+    try {
+      // Primero verificar si hay datos sin filtro de clínica
+      const allResult = await client.query(
+        `SELECT * FROM historico_pacientes
+         WHERE paciente_id = $1 AND medico_id = $2`,
+        [pacienteId, medicoId]
+      );
+      
+      console.log(`📊 Datos sin filtro de clínica:`, allResult.rows.length);
+      
+      // Luego con el filtro de clínica (manejar caso cuando clinica_alias es null)
+      const result = await client.query(
+        `SELECT * FROM historico_pacientes
+         WHERE paciente_id = $1
+           AND medico_id = $2
+           AND (clinica_alias = $3 OR clinica_alias IS NULL)
+         ORDER BY fecha_consulta DESC
+         LIMIT 5`,
+        [pacienteId, medicoId, clinicaAlias]
+      );
 
-    console.log(`📊 Resultado del historial con filtro de clínica (incluyendo null):`, { data, error });
+      console.log(`📊 Resultado del historial con filtro de clínica (incluyendo null):`, result.rows.length);
 
-    if (error) {
-      console.error(`❌ Error obteniendo historial de consultas:`, error);
-      throw new Error(`Error obteniendo historial de consultas: ${error.message}`);
+      const historial = result.rows.map((historial: any) => ({
+        id: historial.id,
+        motivo_consulta: historial.motivo_consulta || '',
+        diagnostico: historial.diagnostico || '',
+        tratamiento: historial.plan || '',
+        conclusiones: historial.conclusiones || '',
+        fecha_consulta: historial.fecha_consulta,
+        fecha_emision: historial.fecha_creacion
+      }));
+
+      console.log(`✅ Historial mapeado:`, historial);
+      return historial;
+    } finally {
+      client.release();
     }
-
-    const historial = (data || []).map(historial => ({
-      id: historial.id,
-      motivo_consulta: historial.motivo_consulta || '',
-      diagnostico: historial.diagnostico || '',
-      tratamiento: historial.plan || '', // Mapear 'plan' a 'tratamiento'
-      conclusiones: historial.conclusiones || '',
-      fecha_consulta: historial.fecha_consulta,
-      fecha_emision: historial.fecha_creacion // Usar fecha_creacion como fecha_emision
-    }));
-
-    console.log(`✅ Historial mapeado:`, historial);
-    return historial;
   }
 
   /**

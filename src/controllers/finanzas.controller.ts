@@ -1,9 +1,8 @@
 import { Request, Response } from 'express';
-import { supabase, postgresPool } from '../config/database.js';
+import { postgresPool } from '../config/database.js';
 import { ApiResponse } from '../types/index.js';
 import { ExcelService } from '../services/excel.service.js';
 import { FinanzasPDFService } from '../services/finanzas-pdf.service.js';
-import { USE_POSTGRES } from '../config/database-config.js';
 
 export class FinanzasController {
   
@@ -14,10 +13,10 @@ export class FinanzasController {
 
       let consultas: any[] = [];
 
-      if (USE_POSTGRES) {
-        const client = await postgresPool.connect();
-        try {
-          // Construir query SQL con JOINs
+      // PostgreSQL implementation
+      const client = await postgresPool.connect();
+      try {
+        // Construir query SQL con JOINs
           let sqlQuery = `
             SELECT 
               c.id,
@@ -148,87 +147,6 @@ export class FinanzasController {
         } finally {
           client.release();
         }
-      } else {
-        // Construir query base (Supabase)
-        let query = supabase
-          .from('consultas_pacientes')
-          .select(`
-            id,
-            fecha_pautada,
-            hora_pautada,
-            estado_consulta,
-            fecha_pago,
-            metodo_pago,
-            observaciones_financieras,
-            paciente:pacientes!inner(
-              nombres,
-              apellidos,
-              cedula
-            ),
-            medico:medicos!fk_consultas_medico(
-              nombres,
-              apellidos,
-              especialidades!inner(
-                nombre_especialidad
-              )
-            ),
-            servicios_consulta(
-              id,
-              monto_pagado,
-              moneda_pago,
-              tipo_cambio,
-              observaciones,
-              servicios!inner(
-                id,
-                nombre_servicio,
-                monto_base,
-                moneda,
-                descripcion
-              )
-            )
-          `);
-
-        // Aplicar filtros
-        if (filtros.fecha_desde) {
-          query = query.gte('fecha_pautada', filtros.fecha_desde);
-        }
-        if (filtros.fecha_hasta) {
-          query = query.lte('fecha_pautada', filtros.fecha_hasta);
-        }
-        if (filtros.medico_id) {
-          query = query.eq('medico_id', filtros.medico_id);
-        }
-        if (filtros.paciente_cedula) {
-          query = query.eq('paciente:cedula', filtros.paciente_cedula);
-        }
-        if (filtros.estado_pago && filtros.estado_pago !== 'todos') {
-          if (filtros.estado_pago === 'pagado') {
-            query = query.not('fecha_pago', 'is', null);
-          } else if (filtros.estado_pago === 'pendiente') {
-            query = query.is('fecha_pago', null);
-          }
-        }
-
-        // Aplicar paginación
-        if (paginacion) {
-          const { pagina = 1, limite = 10 } = paginacion;
-          const offset = (pagina - 1) * limite;
-          query = query.range(offset, offset + limite - 1);
-        }
-
-        const { data, error } = await query;
-
-        if (error) {
-          console.error('Error fetching consultas financieras:', error);
-          res.status(500).json({
-            success: false,
-            error: { message: 'Error al obtener consultas financieras' }
-          } as ApiResponse<null>);
-          return;
-        }
-
-        consultas = data || [];
-      }
 
       // Filtrar consultas por moneda si se especifica
       let consultasFiltradas = consultas || [];
@@ -301,7 +219,8 @@ export class FinanzasController {
 
       // Obtener total de registros para paginación
       let totalRegistros = consultas.length;
-      if (paginacion && USE_POSTGRES) {
+      if (paginacion) {
+        // PostgreSQL implementation
         const client = await postgresPool.connect();
         try {
           let countQuery = `
@@ -347,24 +266,6 @@ export class FinanzasController {
         } finally {
           client.release();
         }
-      } else if (paginacion && !USE_POSTGRES) {
-        const countQuery = supabase
-          .from('consultas_pacientes')
-          .select('id', { count: 'exact', head: true });
-        
-        if (filtros.fecha_desde) countQuery.gte('fecha_pautada', filtros.fecha_desde);
-        if (filtros.fecha_hasta) countQuery.lte('fecha_pautada', filtros.fecha_hasta);
-        if (filtros.medico_id) countQuery.eq('medico_id', filtros.medico_id);
-        if (filtros.paciente_cedula) countQuery.eq('paciente:cedula', filtros.paciente_cedula);
-        if (filtros.estado_pago && filtros.estado_pago !== 'todos') {
-          if (filtros.estado_pago === 'pagado') {
-            countQuery.not('fecha_pago', 'is', null);
-          } else if (filtros.estado_pago === 'pendiente') {
-            countQuery.is('fecha_pago', null);
-          }
-        }
-        const { count } = await countQuery;
-        totalRegistros = count || 0;
       }
       
       // Aplicar filtro de moneda al conteo si es necesario
@@ -409,124 +310,79 @@ export class FinanzasController {
 
       let consultas: any[] = [];
 
-      if (USE_POSTGRES) {
-        const client = await postgresPool.connect();
-        try {
-          // Construir query SQL con JOINs para obtener datos necesarios
-          let sqlQuery = `
-            SELECT 
-              c.id,
-              c.fecha_pago,
-              m.nombres as medico_nombres,
-              m.apellidos as medico_apellidos,
-              e.nombre_especialidad,
-              sc.monto_pagado,
-              sc.moneda_pago
-            FROM consultas_pacientes c
-            INNER JOIN medicos m ON c.medico_id = m.id
-            LEFT JOIN especialidades e ON m.especialidad_id = e.id
-            LEFT JOIN servicios_consulta sc ON c.id = sc.consulta_id
-            WHERE 1=1
-          `;
-          
-          const params: any[] = [];
-          let paramIndex = 1;
-
-          // Aplicar filtros de fecha
-          if (filtros.fecha_desde) {
-            sqlQuery += ` AND c.fecha_pautada >= $${paramIndex}`;
-            params.push(filtros.fecha_desde);
-            paramIndex++;
-          }
-          if (filtros.fecha_hasta) {
-            sqlQuery += ` AND c.fecha_pautada <= $${paramIndex}`;
-            params.push(filtros.fecha_hasta);
-            paramIndex++;
-          }
-          if (filtros.medico_id) {
-            sqlQuery += ` AND c.medico_id = $${paramIndex}`;
-            params.push(filtros.medico_id);
-            paramIndex++;
-          }
-
-          const result = await client.query(sqlQuery, params);
-          
-          // Agrupar resultados por consulta
-          const consultasMap = new Map();
-          result.rows.forEach((row: any) => {
-            if (!consultasMap.has(row.id)) {
-              consultasMap.set(row.id, {
-                id: row.id,
-                fecha_pago: row.fecha_pago,
-                medico: {
-                  nombres: row.medico_nombres,
-                  apellidos: row.medico_apellidos,
-                  especialidades: {
-                    nombre_especialidad: row.nombre_especialidad
-                  }
-                },
-                servicios_consulta: []
-              });
-            }
-            
-            // Agregar servicio si existe
-            if (row.monto_pagado !== null) {
-              const consulta = consultasMap.get(row.id);
-              consulta.servicios_consulta.push({
-                monto_pagado: row.monto_pagado,
-                moneda_pago: row.moneda_pago
-              });
-            }
-          });
-
-          consultas = Array.from(consultasMap.values());
-        } finally {
-          client.release();
-        }
-      } else {
-        // Construir query base para estadísticas (Supabase)
-        let baseQuery = supabase
-          .from('consultas_pacientes')
-          .select(`
-            id,
-            fecha_pago,
-            medico_id,
-            medico:medicos!fk_consultas_medico(
-              nombres,
-              apellidos,
-              especialidades!inner(
-                nombre_especialidad
-              )
-            ),
-            servicios_consulta(
-              monto_pagado,
-              moneda_pago
-            )
-          `);
+      // PostgreSQL implementation
+      const client = await postgresPool.connect();
+      try {
+        // Construir query SQL con JOINs para obtener datos necesarios
+        let sqlQuery = `
+          SELECT 
+            c.id,
+            c.fecha_pago,
+            m.nombres as medico_nombres,
+            m.apellidos as medico_apellidos,
+            e.nombre_especialidad,
+            sc.monto_pagado,
+            sc.moneda_pago
+          FROM consultas_pacientes c
+          INNER JOIN medicos m ON c.medico_id = m.id
+          LEFT JOIN especialidades e ON m.especialidad_id = e.id
+          LEFT JOIN servicios_consulta sc ON c.id = sc.consulta_id
+          WHERE 1=1
+        `;
+        
+        const params: any[] = [];
+        let paramIndex = 1;
 
         // Aplicar filtros de fecha
         if (filtros.fecha_desde) {
-          baseQuery = baseQuery.gte('fecha_pautada', filtros.fecha_desde);
+          sqlQuery += ` AND c.fecha_pautada >= $${paramIndex}`;
+          params.push(filtros.fecha_desde);
+          paramIndex++;
         }
         if (filtros.fecha_hasta) {
-          baseQuery = baseQuery.lte('fecha_pautada', filtros.fecha_hasta);
+          sqlQuery += ` AND c.fecha_pautada <= $${paramIndex}`;
+          params.push(filtros.fecha_hasta);
+          paramIndex++;
         }
         if (filtros.medico_id) {
-          baseQuery = baseQuery.eq('medico_id', filtros.medico_id);
+          sqlQuery += ` AND c.medico_id = $${paramIndex}`;
+          params.push(filtros.medico_id);
+          paramIndex++;
         }
 
-        const { data, error } = await baseQuery;
+        const result = await client.query(sqlQuery, params);
+        
+        // Agrupar resultados por consulta
+        const consultasMap = new Map();
+        result.rows.forEach((row: any) => {
+          if (!consultasMap.has(row.id)) {
+            consultasMap.set(row.id, {
+              id: row.id,
+              fecha_pago: row.fecha_pago,
+              medico: {
+                nombres: row.medico_nombres,
+                apellidos: row.medico_apellidos,
+                especialidades: {
+                  nombre_especialidad: row.nombre_especialidad
+                }
+              },
+              servicios_consulta: []
+            });
+          }
+          
+          // Agregar servicio si existe
+          if (row.monto_pagado !== null) {
+            const consulta = consultasMap.get(row.id);
+            consulta.servicios_consulta.push({
+              monto_pagado: row.monto_pagado,
+              moneda_pago: row.moneda_pago
+            });
+          }
+        });
 
-        if (error) {
-          console.error('Error fetching resumen:', error);
-          res.status(500).json({
-            success: false,
-            error: { message: 'Error al obtener resumen financiero' }
-          } as ApiResponse<null>);
-          return;
-        }
-
-        consultas = data || [];
+        consultas = Array.from(consultasMap.values());
+      } finally {
+        client.release();
       }
 
       // Aplicar filtro de moneda post-query
@@ -652,30 +508,39 @@ export class FinanzasController {
         return;
       }
 
-      const { error } = await supabase
-        .from('consultas_pacientes')
-        .update({
-          fecha_pago,
-          metodo_pago,
-          observaciones_financieras: observaciones || null
-        })
-        .eq('id', id)
-        .select()
-        .single();
+      const client = await postgresPool.connect();
+      try {
+        const result = await client.query(
+          `UPDATE consultas_pacientes 
+           SET fecha_pago = $1,
+               metodo_pago = $2,
+               observaciones_financieras = $3
+           WHERE id = $4
+           RETURNING *`,
+          [fecha_pago, metodo_pago, observaciones || null, id]
+        );
 
-      if (error) {
-        console.error('Error updating consulta:', error);
+        if (result.rows.length === 0) {
+          res.status(404).json({
+            success: false,
+            error: { message: 'Consulta no encontrada' }
+          } as ApiResponse<null>);
+          return;
+        }
+
+        res.json({
+          success: true,
+          data: { message: 'Consulta marcada como pagada exitosamente' }
+        } as ApiResponse<any>);
+      } catch (dbError) {
+        console.error('Error updating consulta:', dbError);
         res.status(500).json({
           success: false,
           error: { message: 'Error al marcar consulta como pagada' }
         } as ApiResponse<null>);
-        return;
+      } finally {
+        client.release();
       }
-
-      res.json({
-        success: true,
-        data: { message: 'Consulta marcada como pagada exitosamente' }
-      } as ApiResponse<any>);
     } catch (error) {
       console.error('Error in marcarConsultaPagada:', error);
       res.status(500).json({
@@ -693,132 +558,202 @@ export class FinanzasController {
       
       
       // Obtener datos para el reporte con los mismos filtros que las consultas
-      let query = supabase
-        .from('consultas_pacientes')
-        .select(`
-          id,
-          fecha_pautada,
-          fecha_pago,
-          paciente:pacientes!inner(
-            nombres,
-            apellidos,
-            cedula
-          ),
-          medico:medicos!fk_consultas_medico(
-            nombres,
-            apellidos,
-            especialidad:especialidades!inner(
-              nombre_especialidad
-            )
-          ),
-          servicios_consulta(
-            id,
-            monto_pagado,
-            moneda_pago,
-            servicios!inner(
-              nombre_servicio,
-              descripcion
-            )
-          )
-        `);
+      const client = await postgresPool.connect();
+      try {
+        // Construir query SQL con JOINs (igual que getConsultasFinancieras)
+        let sqlQuery = `
+          SELECT 
+            c.id,
+            c.fecha_pautada,
+            c.hora_pautada,
+            c.estado_consulta,
+            c.fecha_pago,
+            c.metodo_pago,
+            c.observaciones_financieras,
+            p.nombres as paciente_nombres,
+            p.apellidos as paciente_apellidos,
+            p.cedula as paciente_cedula,
+            m.nombres as medico_nombres,
+            m.apellidos as medico_apellidos,
+            e.nombre_especialidad,
+            sc.id as servicio_consulta_id,
+            sc.monto_pagado,
+            sc.moneda_pago,
+            sc.tipo_cambio,
+            sc.observaciones as servicio_observaciones,
+            s.id as servicio_id,
+            s.nombre_servicio,
+            s.monto_base,
+            s.moneda as servicio_moneda,
+            s.descripcion as servicio_descripcion
+          FROM consultas_pacientes c
+          INNER JOIN pacientes p ON c.paciente_id = p.id
+          INNER JOIN medicos m ON c.medico_id = m.id
+          LEFT JOIN especialidades e ON m.especialidad_id = e.id
+          LEFT JOIN servicios_consulta sc ON c.id = sc.consulta_id
+          LEFT JOIN servicios s ON sc.servicio_id = s.id
+          WHERE 1=1
+        `;
+        
+        const params: any[] = [];
+        let paramIndex = 1;
 
-      // Aplicar filtros (igual que en getConsultasFinancieras)
-      if (filtros?.fecha_desde) {
-        query = query.gte('fecha_pautada', filtros.fecha_desde);
-      }
-      if (filtros?.fecha_hasta) {
-        query = query.lte('fecha_pautada', filtros.fecha_hasta);
-      }
-      if (filtros?.medico_id) {
-        query = query.eq('medico_id', filtros.medico_id);
-      }
-      if (filtros?.paciente_cedula) {
-        query = query.eq('paciente:cedula', filtros.paciente_cedula);
-      }
-      if (filtros?.estado_pago && filtros.estado_pago !== 'todos') {
-        if (filtros.estado_pago === 'pagado') {
-          query = query.not('fecha_pago', 'is', null);
-        } else if (filtros.estado_pago === 'pendiente') {
-          query = query.is('fecha_pago', null);
+        // Aplicar filtros (igual que en getConsultasFinancieras)
+        if (filtros?.fecha_desde) {
+          sqlQuery += ` AND c.fecha_pautada >= $${paramIndex}`;
+          params.push(filtros.fecha_desde);
+          paramIndex++;
         }
-      }
+        if (filtros?.fecha_hasta) {
+          sqlQuery += ` AND c.fecha_pautada <= $${paramIndex}`;
+          params.push(filtros.fecha_hasta);
+          paramIndex++;
+        }
+        if (filtros?.medico_id) {
+          sqlQuery += ` AND c.medico_id = $${paramIndex}`;
+          params.push(filtros.medico_id);
+          paramIndex++;
+        }
+        if (filtros?.paciente_cedula) {
+          sqlQuery += ` AND p.cedula = $${paramIndex}`;
+          params.push(filtros.paciente_cedula);
+          paramIndex++;
+        }
+        if (filtros?.estado_pago && filtros.estado_pago !== 'todos') {
+          if (filtros.estado_pago === 'pagado') {
+            sqlQuery += ` AND c.fecha_pago IS NOT NULL`;
+          } else if (filtros.estado_pago === 'pendiente') {
+            sqlQuery += ` AND c.fecha_pago IS NULL`;
+          }
+        }
 
-      // Agregar límite explícito para obtener todas las consultas
-      const { data: consultas, error } = await query.limit(1000);
+        sqlQuery += ` ORDER BY c.fecha_pautada DESC, c.id LIMIT 1000`;
 
-      if (error) {
-        console.error('Error fetching data for export:', error);
+        const result = await client.query(sqlQuery, params);
+        
+        // Agrupar resultados por consulta (igual que getConsultasFinancieras)
+        const consultasMap = new Map();
+        result.rows.forEach((row: any) => {
+          if (!consultasMap.has(row.id)) {
+            consultasMap.set(row.id, {
+              id: row.id,
+              fecha_pautada: row.fecha_pautada,
+              hora_pautada: row.hora_pautada,
+              estado_consulta: row.estado_consulta,
+              fecha_pago: row.fecha_pago,
+              metodo_pago: row.metodo_pago,
+              observaciones_financieras: row.observaciones_financieras,
+              paciente: {
+                nombres: row.paciente_nombres,
+                apellidos: row.paciente_apellidos,
+                cedula: row.paciente_cedula
+              },
+              medico: {
+                nombres: row.medico_nombres,
+                apellidos: row.medico_apellidos,
+                especialidades: {
+                  nombre_especialidad: row.nombre_especialidad
+                }
+              },
+              servicios_consulta: []
+            });
+          }
+          
+          // Agregar servicio si existe
+          if (row.servicio_consulta_id) {
+            const consulta = consultasMap.get(row.id);
+            consulta.servicios_consulta.push({
+              id: row.servicio_consulta_id,
+              monto_pagado: row.monto_pagado,
+              moneda_pago: row.moneda_pago,
+              tipo_cambio: row.tipo_cambio,
+              observaciones: row.servicio_observaciones,
+              servicios: {
+                id: row.servicio_id,
+                nombre_servicio: row.nombre_servicio,
+                monto_base: row.monto_base,
+                moneda: row.servicio_moneda,
+                descripcion: row.servicio_descripcion
+              }
+            });
+          }
+        });
+
+        const consultas = Array.from(consultasMap.values());
+
+        console.log('📊 CONSULTAS OBTENIDAS PARA EXPORTACIÓN:', consultas?.length || 0);
+        console.log('🔍 PRIMERAS 3 CONSULTAS:', consultas?.slice(0, 3).map((c: any) => ({ id: c.id, servicios: c.servicios_consulta?.length || 0 })));
+
+        // Aplicar filtro de moneda si se especifica (igual que en getConsultasFinancieras)
+        let consultasFiltradas = consultas || [];
+        if (filtros?.moneda && filtros.moneda !== 'TODAS') {
+          console.log('🔍 APLICANDO FILTRO DE MONEDA EN EXPORTACIÓN:', filtros.moneda);
+          consultasFiltradas = consultasFiltradas.filter((consulta: any) => {
+            const tieneServicioConMoneda = consulta.servicios_consulta?.some((servicio: any) => 
+              servicio.moneda_pago === filtros.moneda
+            );
+            return tieneServicioConMoneda;
+          });
+          console.log('📊 CONSULTAS DESPUÉS DEL FILTRO DE MONEDA:', consultasFiltradas.length);
+        } else {
+          console.log('🔍 SIN FILTRO DE MONEDA - USANDO TODAS LAS CONSULTAS');
+        }
+
+        // Generar archivo según el formato solicitado
+        if (formato === 'pdf') {
+          const pdfService = new FinanzasPDFService();
+          // Crear opciones básicas para el filtro de moneda
+          const opciones = {
+            moneda: filtros?.moneda || 'TODAS',
+            formato: formato
+          };
+          const pdfBuffer = await pdfService.generarPDFReporteFinanciero(consultasFiltradas, filtros, opciones);
+          
+          // Configurar headers para descarga de PDF
+          const timestamp = new Date().getTime();
+          res.setHeader('Content-Type', 'application/pdf');
+          res.setHeader('Content-Disposition', `attachment; filename="reporte-financiero-${timestamp}.pdf"`);
+          res.setHeader('Content-Length', pdfBuffer.length);
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+          res.setHeader('Pragma', 'no-cache');
+          res.setHeader('Expires', '0');
+          
+          res.send(pdfBuffer);
+        } else if (formato === 'excel') {
+          const excelService = new ExcelService();
+          // Crear opciones básicas para el filtro de moneda
+          const opciones = {
+            moneda: filtros?.moneda || 'TODAS',
+            formato: formato
+          };
+          const excelBuffer = await excelService.generarExcelReporteFinanciero(consultasFiltradas, filtros, opciones);
+          
+          // Configurar headers para mostrar Excel en el navegador
+          const timestamp = new Date().getTime();
+          res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+          res.setHeader('Content-Disposition', `inline; filename="reporte-financiero-${timestamp}.xlsx"`);
+          res.setHeader('Content-Length', excelBuffer.length);
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+          res.setHeader('Pragma', 'no-cache');
+          res.setHeader('Expires', '0');
+          res.setHeader('X-Content-Type-Options', 'nosniff');
+          res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
+          
+          res.send(excelBuffer);
+        } else {
+          res.status(400).json({
+            success: false,
+            error: { message: 'Formato no soportado. Use "pdf" o "excel"' }
+          } as ApiResponse<null>);
+        }
+      } catch (dbError) {
+        console.error('Error fetching data for export:', dbError);
         res.status(500).json({
           success: false,
           error: { message: 'Error al obtener datos para exportar' }
         } as ApiResponse<null>);
-        return;
-      }
-
-      console.log('📊 CONSULTAS OBTENIDAS PARA EXPORTACIÓN:', consultas?.length || 0);
-      console.log('🔍 PRIMERAS 3 CONSULTAS:', consultas?.slice(0, 3).map(c => ({ id: c.id, servicios: c.servicios_consulta?.length || 0 })));
-
-      // Aplicar filtro de moneda si se especifica (igual que en getConsultasFinancieras)
-      let consultasFiltradas = consultas || [];
-      if (filtros?.moneda && filtros.moneda !== 'TODAS') {
-        console.log('🔍 APLICANDO FILTRO DE MONEDA EN EXPORTACIÓN:', filtros.moneda);
-        consultasFiltradas = consultasFiltradas.filter(consulta => {
-          const tieneServicioConMoneda = consulta.servicios_consulta?.some((servicio: any) => 
-            servicio.moneda_pago === filtros.moneda
-          );
-          return tieneServicioConMoneda;
-        });
-        console.log('📊 CONSULTAS DESPUÉS DEL FILTRO DE MONEDA:', consultasFiltradas.length);
-      } else {
-        console.log('🔍 SIN FILTRO DE MONEDA - USANDO TODAS LAS CONSULTAS');
-      }
-
-      // Generar archivo según el formato solicitado
-      if (formato === 'pdf') {
-        const pdfService = new FinanzasPDFService();
-        // Crear opciones básicas para el filtro de moneda
-        const opciones = {
-          moneda: filtros?.moneda || 'TODAS',
-          formato: formato
-        };
-        const pdfBuffer = await pdfService.generarPDFReporteFinanciero(consultasFiltradas, filtros, opciones);
-        
-        // Configurar headers para descarga de PDF
-        const timestamp = new Date().getTime();
-        res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename="reporte-financiero-${timestamp}.pdf"`);
-        res.setHeader('Content-Length', pdfBuffer.length);
-        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-        res.setHeader('Pragma', 'no-cache');
-        res.setHeader('Expires', '0');
-        
-        res.send(pdfBuffer);
-      } else if (formato === 'excel') {
-        const excelService = new ExcelService();
-        // Crear opciones básicas para el filtro de moneda
-        const opciones = {
-          moneda: filtros?.moneda || 'TODAS',
-          formato: formato
-        };
-        const excelBuffer = await excelService.generarExcelReporteFinanciero(consultasFiltradas, filtros, opciones);
-        
-        // Configurar headers para mostrar Excel en el navegador
-        const timestamp = new Date().getTime();
-        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        res.setHeader('Content-Disposition', `inline; filename="reporte-financiero-${timestamp}.xlsx"`);
-        res.setHeader('Content-Length', excelBuffer.length);
-        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-        res.setHeader('Pragma', 'no-cache');
-        res.setHeader('Expires', '0');
-        res.setHeader('X-Content-Type-Options', 'nosniff');
-        res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
-        
-        res.send(excelBuffer);
-      } else {
-        res.status(400).json({
-          success: false,
-          error: { message: 'Formato no soportado. Use "pdf" o "excel"' }
-        } as ApiResponse<null>);
+      } finally {
+        client.release();
       }
     } catch (error) {
       console.error('Error in exportarReporte:', error);
@@ -863,122 +798,191 @@ export class FinanzasController {
       
       
       // Obtener datos para el reporte con filtros avanzados
-      let query = supabase
-        .from('consultas_pacientes')
-        .select(`
-          id,
-          fecha_pautada,
-          fecha_pago,
-          paciente:pacientes!inner(
-            nombres,
-            apellidos,
-            cedula
-          ),
-          medico:medicos!fk_consultas_medico(
-            nombres,
-            apellidos,
-            especialidad:especialidades!inner(
-              nombre_especialidad
-            )
-          ),
-          servicios_consulta(
-            id,
-            monto_pagado,
-            moneda_pago,
-            servicios!inner(
-              nombre_servicio,
-              descripcion
-            )
-          )
-        `);
+      const client = await postgresPool.connect();
+      try {
+        // Construir query SQL con JOINs (igual que getConsultasFinancieras)
+        let sqlQuery = `
+          SELECT 
+            c.id,
+            c.fecha_pautada,
+            c.hora_pautada,
+            c.estado_consulta,
+            c.fecha_pago,
+            c.metodo_pago,
+            c.observaciones_financieras,
+            p.nombres as paciente_nombres,
+            p.apellidos as paciente_apellidos,
+            p.cedula as paciente_cedula,
+            m.nombres as medico_nombres,
+            m.apellidos as medico_apellidos,
+            e.nombre_especialidad,
+            sc.id as servicio_consulta_id,
+            sc.monto_pagado,
+            sc.moneda_pago,
+            sc.tipo_cambio,
+            sc.observaciones as servicio_observaciones,
+            s.id as servicio_id,
+            s.nombre_servicio,
+            s.monto_base,
+            s.moneda as servicio_moneda,
+            s.descripcion as servicio_descripcion
+          FROM consultas_pacientes c
+          INNER JOIN pacientes p ON c.paciente_id = p.id
+          INNER JOIN medicos m ON c.medico_id = m.id
+          LEFT JOIN especialidades e ON m.especialidad_id = e.id
+          LEFT JOIN servicios_consulta sc ON c.id = sc.consulta_id
+          LEFT JOIN servicios s ON sc.servicio_id = s.id
+          WHERE 1=1
+        `;
+        
+        const params: any[] = [];
+        let paramIndex = 1;
 
-      // Aplicar filtros (igual que en getConsultasFinancieras)
-      if (filtros?.fecha_desde) {
-        query = query.gte('fecha_pautada', filtros.fecha_desde);
-      }
-      if (filtros?.fecha_hasta) {
-        query = query.lte('fecha_pautada', filtros.fecha_hasta);
-      }
-      if (filtros?.medico_id) {
-        query = query.eq('medico_id', filtros.medico_id);
-      }
-      if (filtros?.paciente_cedula) {
-        query = query.eq('paciente:cedula', filtros.paciente_cedula);
-      }
-      if (filtros?.estado_pago && filtros.estado_pago !== 'todos') {
-        if (filtros.estado_pago === 'pagado') {
-          query = query.not('fecha_pago', 'is', null);
-        } else if (filtros.estado_pago === 'pendiente') {
-          query = query.is('fecha_pago', null);
+        // Aplicar filtros (igual que en getConsultasFinancieras)
+        if (filtros?.fecha_desde) {
+          sqlQuery += ` AND c.fecha_pautada >= $${paramIndex}`;
+          params.push(filtros.fecha_desde);
+          paramIndex++;
         }
-      }
+        if (filtros?.fecha_hasta) {
+          sqlQuery += ` AND c.fecha_pautada <= $${paramIndex}`;
+          params.push(filtros.fecha_hasta);
+          paramIndex++;
+        }
+        if (filtros?.medico_id) {
+          sqlQuery += ` AND c.medico_id = $${paramIndex}`;
+          params.push(filtros.medico_id);
+          paramIndex++;
+        }
+        if (filtros?.paciente_cedula) {
+          sqlQuery += ` AND p.cedula = $${paramIndex}`;
+          params.push(filtros.paciente_cedula);
+          paramIndex++;
+        }
+        if (filtros?.estado_pago && filtros.estado_pago !== 'todos') {
+          if (filtros.estado_pago === 'pagado') {
+            sqlQuery += ` AND c.fecha_pago IS NOT NULL`;
+          } else if (filtros.estado_pago === 'pendiente') {
+            sqlQuery += ` AND c.fecha_pago IS NULL`;
+          }
+        }
 
-      // Agregar límite explícito para obtener todas las consultas
-      const { data: consultas, error } = await query.limit(1000);
+        sqlQuery += ` ORDER BY c.fecha_pautada DESC, c.id LIMIT 1000`;
 
-      if (error) {
-        console.error('Error fetching data for advanced export:', error);
+        const result = await client.query(sqlQuery, params);
+        
+        // Agrupar resultados por consulta (igual que getConsultasFinancieras)
+        const consultasMap = new Map();
+        result.rows.forEach((row: any) => {
+          if (!consultasMap.has(row.id)) {
+            consultasMap.set(row.id, {
+              id: row.id,
+              fecha_pautada: row.fecha_pautada,
+              hora_pautada: row.hora_pautada,
+              estado_consulta: row.estado_consulta,
+              fecha_pago: row.fecha_pago,
+              metodo_pago: row.metodo_pago,
+              observaciones_financieras: row.observaciones_financieras,
+              paciente: {
+                nombres: row.paciente_nombres,
+                apellidos: row.paciente_apellidos,
+                cedula: row.paciente_cedula
+              },
+              medico: {
+                nombres: row.medico_nombres,
+                apellidos: row.medico_apellidos,
+                especialidades: {
+                  nombre_especialidad: row.nombre_especialidad
+                }
+              },
+              servicios_consulta: []
+            });
+          }
+          
+          // Agregar servicio si existe
+          if (row.servicio_consulta_id) {
+            const consulta = consultasMap.get(row.id);
+            consulta.servicios_consulta.push({
+              id: row.servicio_consulta_id,
+              monto_pagado: row.monto_pagado,
+              moneda_pago: row.moneda_pago,
+              tipo_cambio: row.tipo_cambio,
+              observaciones: row.servicio_observaciones,
+              servicios: {
+                id: row.servicio_id,
+                nombre_servicio: row.nombre_servicio,
+                monto_base: row.monto_base,
+                moneda: row.servicio_moneda,
+                descripcion: row.servicio_descripcion
+              }
+            });
+          }
+        });
+
+        const consultas = Array.from(consultasMap.values());
+
+        console.log('📊 CONSULTAS OBTENIDAS PARA EXPORTACIÓN AVANZADA:', consultas?.length || 0);
+
+        // Aplicar filtro de moneda si se especifica (post-consulta, igual que en getConsultasFinancieras)
+        let consultasFiltradas = consultas || [];
+        if (opciones?.moneda && opciones.moneda !== 'TODAS') {
+          console.log('🔍 APLICANDO FILTRO DE MONEDA EN EXPORTACIÓN AVANZADA:', opciones.moneda);
+          consultasFiltradas = consultasFiltradas.filter((consulta: any) => {
+            const tieneServicioConMoneda = consulta.servicios_consulta?.some((servicio: any) => 
+              servicio.moneda_pago === opciones.moneda
+            );
+            return tieneServicioConMoneda;
+          });
+          console.log('📊 CONSULTAS DESPUÉS DEL FILTRO DE MONEDA:', consultasFiltradas.length);
+        } else {
+          console.log('🔍 SIN FILTRO DE MONEDA - USANDO TODAS LAS CONSULTAS');
+        }
+
+        // Generar archivo según el formato solicitado
+        if (formato === 'pdf') {
+          const pdfService = new FinanzasPDFService();
+          const pdfBuffer = await pdfService.generarPDFReporteFinanciero(consultasFiltradas, filtros, opciones);
+          
+          // Configurar headers para descarga de PDF
+          const timestamp = new Date().getTime();
+          res.setHeader('Content-Type', 'application/pdf');
+          res.setHeader('Content-Disposition', `attachment; filename="reporte-financiero-avanzado-${timestamp}.pdf"`);
+          res.setHeader('Content-Length', pdfBuffer.length);
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+          res.setHeader('Pragma', 'no-cache');
+          res.setHeader('Expires', '0');
+          
+          res.send(pdfBuffer);
+        } else if (formato === 'excel') {
+          const excelService = new ExcelService();
+          const excelBuffer = await excelService.generarExcelReporteFinanciero(consultasFiltradas, filtros, opciones);
+          
+          // Configurar headers para mostrar Excel en el navegador
+          const timestamp = new Date().getTime();
+          res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+          res.setHeader('Content-Disposition', `inline; filename="reporte-financiero-avanzado-${timestamp}.xlsx"`);
+          res.setHeader('Content-Length', excelBuffer.length);
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+          res.setHeader('Pragma', 'no-cache');
+          res.setHeader('Expires', '0');
+          res.setHeader('X-Content-Type-Options', 'nosniff');
+          res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
+          
+          res.send(excelBuffer);
+        } else {
+          res.status(400).json({
+            success: false,
+            error: { message: 'Formato no soportado. Use "pdf" o "excel"' }
+          } as ApiResponse<null>);
+        }
+      } catch (dbError) {
+        console.error('Error fetching data for advanced export:', dbError);
         res.status(500).json({
           success: false,
           error: { message: 'Error al obtener datos para exportación avanzada' }
         } as ApiResponse<null>);
-        return;
-      }
-
-      console.log('📊 CONSULTAS OBTENIDAS PARA EXPORTACIÓN AVANZADA:', consultas?.length || 0);
-
-      // Aplicar filtro de moneda si se especifica (post-consulta, igual que en getConsultasFinancieras)
-      let consultasFiltradas = consultas || [];
-      if (opciones?.moneda && opciones.moneda !== 'TODAS') {
-        console.log('🔍 APLICANDO FILTRO DE MONEDA EN EXPORTACIÓN AVANZADA:', opciones.moneda);
-        consultasFiltradas = consultasFiltradas.filter(consulta => {
-          const tieneServicioConMoneda = consulta.servicios_consulta?.some((servicio: any) => 
-            servicio.moneda_pago === opciones.moneda
-          );
-          return tieneServicioConMoneda;
-        });
-        console.log('📊 CONSULTAS DESPUÉS DEL FILTRO DE MONEDA:', consultasFiltradas.length);
-      } else {
-        console.log('🔍 SIN FILTRO DE MONEDA - USANDO TODAS LAS CONSULTAS');
-      }
-
-
-      // Generar archivo según el formato solicitado
-      if (formato === 'pdf') {
-        const pdfService = new FinanzasPDFService();
-        const pdfBuffer = await pdfService.generarPDFReporteFinanciero(consultasFiltradas, filtros, opciones);
-        
-        // Configurar headers para descarga de PDF
-        const timestamp = new Date().getTime();
-        res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename="reporte-financiero-avanzado-${timestamp}.pdf"`);
-        res.setHeader('Content-Length', pdfBuffer.length);
-        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-        res.setHeader('Pragma', 'no-cache');
-        res.setHeader('Expires', '0');
-        
-        res.send(pdfBuffer);
-      } else if (formato === 'excel') {
-        const excelService = new ExcelService();
-        const excelBuffer = await excelService.generarExcelReporteFinanciero(consultasFiltradas, filtros, opciones);
-        
-        // Configurar headers para mostrar Excel en el navegador
-        const timestamp = new Date().getTime();
-        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        res.setHeader('Content-Disposition', `inline; filename="reporte-financiero-avanzado-${timestamp}.xlsx"`);
-        res.setHeader('Content-Length', excelBuffer.length);
-        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-        res.setHeader('Pragma', 'no-cache');
-        res.setHeader('Expires', '0');
-        res.setHeader('X-Content-Type-Options', 'nosniff');
-        res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
-        
-        res.send(excelBuffer);
-      } else {
-        res.status(400).json({
-          success: false,
-          error: { message: 'Formato no soportado. Use "pdf" o "excel"' }
-        } as ApiResponse<null>);
+      } finally {
+        client.release();
       }
     } catch (error) {
       console.error('Error in exportarReporteAvanzado:', error);

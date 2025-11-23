@@ -244,6 +244,53 @@ export class HistoricoController {
     }
   }
 
+  // Verificar si un paciente tiene historia médica para una especialidad
+  async verificarHistoriaPorEspecialidad(req: Request<{ paciente_id: string }, ApiResponse, {}, { especialidad_id?: string }>, res: Response<ApiResponse>): Promise<void> {
+    try {
+      const { paciente_id } = req.params;
+      const { especialidad_id } = req.query;
+
+      const pacienteId = parseInt(paciente_id);
+      const especialidadId = especialidad_id ? parseInt(especialidad_id) : undefined;
+      
+      if (isNaN(pacienteId)) {
+        const response: ApiResponse = {
+          success: false,
+          error: { message: 'Invalid paciente_id' }
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      if (!especialidadId || isNaN(especialidadId)) {
+        const response: ApiResponse = {
+          success: false,
+          error: { message: 'Invalid especialidad_id' }
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      const tieneHistoria = await this.historicoService.tieneHistoriaPorEspecialidad(pacienteId, especialidadId);
+
+      const response: ApiResponse = {
+        success: true,
+        data: {
+          tiene_historia: tieneHistoria,
+          paciente_id: pacienteId,
+          especialidad_id: especialidadId
+        }
+      };
+      res.json(response);
+    } catch (error) {
+      const response: ApiResponse = {
+        success: false,
+        error: { message: (error as Error).message }
+      };
+      res.status(400).json(response);
+    }
+  }
+
   async updateHistorico(req: Request<{ id: string }, ApiResponse>, res: Response<ApiResponse>): Promise<void> {
     try {
       const { id } = req.params;

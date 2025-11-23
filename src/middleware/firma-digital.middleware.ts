@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { supabase } from '../config/database';
+import { postgresPool } from '../config/database.js';
 
 export interface FirmaDigitalRequest extends Request {
   firmaDigital?: {
@@ -22,35 +22,36 @@ export const verificarFirmaDigital = async (req: FirmaDigitalRequest, res: Respo
       return;
     }
 
-    // Verificar si el informe tiene firma digital
-    const { data, error } = await supabase
-      .from('firmas_digitales')
-      .select('*')
-      .eq('informe_id', informeId)
-      .single();
+    // Verificar si el informe tiene firma digital (PostgreSQL)
+    const client = await postgresPool.connect();
+    try {
+      const result = await client.query(
+        'SELECT * FROM firmas_digitales WHERE informe_id = $1 LIMIT 1',
+        [informeId]
+      );
 
-    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
-      throw new Error(`Error verificando firma digital: ${error.message}`);
-    }
-
-    if (data) {
-      // El informe está firmado
-      req.firmaDigital = {
-        valida: true,
-        firma_hash: data.firma_hash,
-        fecha_firma: new Date(data.fecha_firma),
-        certificado_digital: data.certificado_digital,
-        medico_id: data.medico_id
-      };
-    } else {
-      // El informe no está firmado
-      req.firmaDigital = {
-        valida: false,
-        firma_hash: '',
-        fecha_firma: new Date(),
-        certificado_digital: '',
-        medico_id: 0
-      };
+      if (result.rows.length > 0) {
+        const data = result.rows[0];
+        // El informe está firmado
+        req.firmaDigital = {
+          valida: true,
+          firma_hash: data.firma_hash,
+          fecha_firma: new Date(data.fecha_firma),
+          certificado_digital: data.certificado_digital,
+          medico_id: data.medico_id
+        };
+      } else {
+        // El informe no está firmado
+        req.firmaDigital = {
+          valida: false,
+          firma_hash: '',
+          fecha_firma: new Date(),
+          certificado_digital: '',
+          medico_id: 0
+        };
+      }
+    } finally {
+      client.release();
     }
 
     next();
@@ -99,33 +100,39 @@ export const verificarIntegridadFirma = async (req: FirmaDigitalRequest, res: Re
     const { id } = req.params;
     const informeId = parseInt(id!);
 
-    // Obtener el contenido actual del informe
-    const { data: informe, error: informeError } = await supabase
-      .from('informes_medicos')
-      .select('contenido')
-      .eq('id', informeId)
-      .single();
+    // Obtener el contenido actual del informe (PostgreSQL)
+    const client = await postgresPool.connect();
+    try {
+      const result = await client.query(
+        'SELECT contenido FROM informes_medicos WHERE id = $1 LIMIT 1',
+        [informeId]
+      );
 
-    if (informeError) {
-      throw new Error(`Error obteniendo contenido del informe: ${informeError.message}`);
-    }
+      if (result.rows.length === 0) {
+        throw new Error('Informe no encontrado');
+      }
 
-    // Generar hash del contenido actual
-    const crypto = require('crypto');
-    const hashActual = crypto.createHash('sha256').update(informe.contenido).digest('hex');
+      const informe = result.rows[0];
 
-    // Verificar si el hash coincide
-    if (hashActual !== req.firmaDigital.firma_hash) {
-      res.status(400).json({
-        success: false,
-        message: 'La integridad de la firma digital ha sido comprometida. El documento ha sido modificado después de la firma.',
-        data: {
-          hash_original: req.firmaDigital.firma_hash,
-          hash_actual: hashActual,
-          integridad_comprometida: true
-        }
-      });
-      return;
+      // Generar hash del contenido actual
+      const crypto = require('crypto');
+      const hashActual = crypto.createHash('sha256').update(informe.contenido).digest('hex');
+
+      // Verificar si el hash coincide
+      if (hashActual !== req.firmaDigital.firma_hash) {
+        res.status(400).json({
+          success: false,
+          message: 'La integridad de la firma digital ha sido comprometida. El documento ha sido modificado después de la firma.',
+          data: {
+            hash_original: req.firmaDigital.firma_hash,
+            hash_actual: hashActual,
+            integridad_comprometida: true
+          }
+        });
+        return;
+      }
+    } finally {
+      client.release();
     }
 
     next();
@@ -152,22 +159,26 @@ export const registrarAuditoriaFirma = async (req: FirmaDigitalRequest, _res: Re
     const userId = (req as any).user?.id;
     const medicoId = (req as any).user?.medico_id;
 
-    // Registrar en auditoría
-    const { error } = await supabase
-      .from('auditoria_firmas')
-      .insert({
-        informe_id: informeId,
-        medico_id: medicoId,
-        usuario_id: userId,
-        accion: req.method + ' ' + req.path,
-        ip_address: req.ip || req.connection.remoteAddress,
-        user_agent: req.get('User-Agent'),
-        timestamp: new Date().toISOString()
-      });
-
-    if (error) {
+    // Registrar en auditoría (PostgreSQL)
+    const client = await postgresPool.connect();
+    try {
+      await client.query(
+        `INSERT INTO auditoria_firmas (informe_id, medico_id, usuario_id, accion, ip_address, user_agent, timestamp)
+         VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+        [
+          informeId,
+          medicoId,
+          userId,
+          req.method + ' ' + req.path,
+          req.ip || req.connection.remoteAddress,
+          req.get('User-Agent')
+        ]
+      );
+    } catch (error) {
       console.error('Error registrando auditoría de firma:', error);
       // No fallar la operación por error de auditoría
+    } finally {
+      client.release();
     }
 
     next();

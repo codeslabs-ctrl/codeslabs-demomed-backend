@@ -6,8 +6,6 @@ import {
   RemisionWithDetails 
 } from '../models/remision.model.js';
 import { EmailService } from './email.service.js';
-import { supabase } from '../config/database.js';
-import { USE_POSTGRES } from '../config/database-config.js';
 import { postgresPool } from '../config/database.js';
 
 export class RemisionService {
@@ -223,105 +221,54 @@ export class RemisionService {
       let medicoRemitidoData: any;
       let especialidadData: any;
 
-      if (USE_POSTGRES) {
-        const client = await postgresPool.connect();
-        try {
-          // Obtener datos del paciente
-          console.log('🔍 Buscando paciente con ID:', remision.paciente_id, 'tipo:', typeof remision.paciente_id);
-          const pacienteResult = await client.query(
-            'SELECT nombres, apellidos, edad, sexo FROM pacientes WHERE id = $1',
-            [Number(remision.paciente_id)]
-          );
-          if (pacienteResult.rows.length === 0) {
-            throw new Error('Paciente no encontrado');
-          }
-          pacienteData = pacienteResult.rows[0];
-
-          // Obtener datos del médico remitente
-          const medicoRemitenteResult = await client.query(
-            'SELECT nombres, apellidos, email, especialidad_id FROM medicos WHERE id = $1',
-            [remision.medico_remitente_id]
-          );
-          if (medicoRemitenteResult.rows.length === 0) {
-            throw new Error('Médico remitente no encontrado');
-          }
-          medicoRemitenteData = medicoRemitenteResult.rows[0];
-
-          // Obtener datos del médico remitido
-          const medicoRemitidoResult = await client.query(
-            'SELECT nombres, apellidos, email FROM medicos WHERE id = $1',
-            [remision.medico_remitido_id]
-          );
-          if (medicoRemitidoResult.rows.length === 0) {
-            throw new Error('Médico remitido no encontrado');
-          }
-          medicoRemitidoData = medicoRemitidoResult.rows[0];
-
-          // Obtener especialidad del médico remitente
-          if (medicoRemitenteData.especialidad_id) {
-            const especialidadResult = await client.query(
-              'SELECT nombre_especialidad FROM especialidades WHERE id = $1',
-              [medicoRemitenteData.especialidad_id]
-            );
-            if (especialidadResult.rows.length > 0) {
-              especialidadData = especialidadResult.rows[0];
-            } else {
-              console.warn('⚠️ No se pudo obtener la especialidad del médico remitente');
-            }
-          }
-        } finally {
-          client.release();
-        }
-      } else {
+      // PostgreSQL implementation
+      const client = await postgresPool.connect();
+      try {
         // Obtener datos del paciente
         console.log('🔍 Buscando paciente con ID:', remision.paciente_id, 'tipo:', typeof remision.paciente_id);
-        const { data: pacienteDataSupabase, error: pacienteError } = await supabase
-          .from('pacientes')
-          .select('nombres, apellidos, edad, sexo')
-          .eq('id', Number(remision.paciente_id))
-          .single();
-
-        if (pacienteError) {
-          throw new Error(`Error obteniendo datos del paciente: ${pacienteError.message}`);
+        const pacienteResult = await client.query(
+          'SELECT nombres, apellidos, edad, sexo FROM pacientes WHERE id = $1',
+          [Number(remision.paciente_id)]
+        );
+        if (pacienteResult.rows.length === 0) {
+          throw new Error('Paciente no encontrado');
         }
-        pacienteData = pacienteDataSupabase;
+        pacienteData = pacienteResult.rows[0];
 
         // Obtener datos del médico remitente
-        const { data: medicoRemitenteDataSupabase, error: medicoRemitenteError } = await supabase
-          .from('medicos')
-          .select('nombres, apellidos, email, especialidad_id')
-          .eq('id', remision.medico_remitente_id)
-          .single();
-
-        if (medicoRemitenteError) {
-          throw new Error(`Error obteniendo datos del médico remitente: ${medicoRemitenteError.message}`);
+        const medicoRemitenteResult = await client.query(
+          'SELECT nombres, apellidos, email, especialidad_id FROM medicos WHERE id = $1',
+          [remision.medico_remitente_id]
+        );
+        if (medicoRemitenteResult.rows.length === 0) {
+          throw new Error('Médico remitente no encontrado');
         }
-        medicoRemitenteData = medicoRemitenteDataSupabase;
+        medicoRemitenteData = medicoRemitenteResult.rows[0];
 
         // Obtener datos del médico remitido
-        const { data: medicoRemitidoDataSupabase, error: medicoRemitidoError } = await supabase
-          .from('medicos')
-          .select('nombres, apellidos, email')
-          .eq('id', remision.medico_remitido_id)
-          .single();
-
-        if (medicoRemitidoError) {
-          throw new Error(`Error obteniendo datos del médico remitido: ${medicoRemitidoError.message}`);
+        const medicoRemitidoResult = await client.query(
+          'SELECT nombres, apellidos, email FROM medicos WHERE id = $1',
+          [remision.medico_remitido_id]
+        );
+        if (medicoRemitidoResult.rows.length === 0) {
+          throw new Error('Médico remitido no encontrado');
         }
-        medicoRemitidoData = medicoRemitidoDataSupabase;
+        medicoRemitidoData = medicoRemitidoResult.rows[0];
 
         // Obtener especialidad del médico remitente
-        const { data: especialidadDataSupabase, error: especialidadError } = await supabase
-          .from('especialidades')
-          .select('nombre_especialidad')
-          .eq('id', medicoRemitenteData.especialidad_id)
-          .single();
-
-        if (especialidadError) {
-          console.warn('⚠️ No se pudo obtener la especialidad del médico remitente');
-        } else {
-          especialidadData = especialidadDataSupabase;
+        if (medicoRemitenteData.especialidad_id) {
+          const especialidadResult = await client.query(
+            'SELECT nombre_especialidad FROM especialidades WHERE id = $1',
+            [medicoRemitenteData.especialidad_id]
+          );
+          if (especialidadResult.rows.length > 0) {
+            especialidadData = especialidadResult.rows[0];
+          } else {
+            console.warn('⚠️ No se pudo obtener la especialidad del médico remitente');
+          }
         }
+      } finally {
+        client.release();
       }
 
       // Preparar datos para el email
@@ -399,51 +346,37 @@ export class RemisionService {
 
       console.log('🔍 Datos de consulta a crear:', consultaData);
 
-      if (USE_POSTGRES) {
-        const client = await postgresPool.connect();
-        try {
-          const insertQuery = `
-            INSERT INTO consultas_pacientes (
-              paciente_id, medico_id, medico_remitente_id, motivo_consulta,
-              tipo_consulta, estado_consulta, fecha_pautada, hora_pautada,
-              duracion_estimada, prioridad, observaciones, recordatorio_enviado, clinica_alias
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-            RETURNING id
-          `;
-          
-          const result = await client.query(insertQuery, [
-            consultaData.paciente_id,
-            consultaData.medico_id,
-            consultaData.medico_remitente_id,
-            consultaData.motivo_consulta,
-            consultaData.tipo_consulta,
-            consultaData.estado_consulta,
-            consultaData.fecha_pautada,
-            consultaData.hora_pautada,
-            consultaData.duracion_estimada,
-            consultaData.prioridad,
-            consultaData.observaciones,
-            consultaData.recordatorio_enviado,
-            consultaData.clinica_alias
-          ]);
+      // PostgreSQL implementation
+      const client = await postgresPool.connect();
+      try {
+        const insertQuery = `
+          INSERT INTO consultas_pacientes (
+            paciente_id, medico_id, medico_remitente_id, motivo_consulta,
+            tipo_consulta, estado_consulta, fecha_pautada, hora_pautada,
+            duracion_estimada, prioridad, observaciones, recordatorio_enviado, clinica_alias
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          RETURNING id
+        `;
+        
+        const result = await client.query(insertQuery, [
+          consultaData.paciente_id,
+          consultaData.medico_id,
+          consultaData.medico_remitente_id,
+          consultaData.motivo_consulta,
+          consultaData.tipo_consulta,
+          consultaData.estado_consulta,
+          consultaData.fecha_pautada,
+          consultaData.hora_pautada,
+          consultaData.duracion_estimada,
+          consultaData.prioridad,
+          consultaData.observaciones,
+          consultaData.recordatorio_enviado,
+          consultaData.clinica_alias
+        ]);
 
-          console.log('✅ Consulta creada exitosamente:', result.rows[0].id);
-        } finally {
-          client.release();
-        }
-      } else {
-        // Crear la consulta en la base de datos
-        const { data: consulta, error } = await supabase
-          .from('consultas_pacientes')
-          .insert([consultaData])
-          .select()
-          .single();
-
-        if (error) {
-          throw new Error(`Error creando consulta: ${error.message}`);
-        }
-
-        console.log('✅ Consulta creada exitosamente:', consulta.id);
+        console.log('✅ Consulta creada exitosamente:', result.rows[0].id);
+      } finally {
+        client.release();
       }
     } catch (error) {
       console.error('❌ Error en createConsultaFromRemision:', error);

@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { supabase } from '../config/database.js';
+import { postgresPool } from '../config/database.js';
 
 export class FirmaService {
   
@@ -47,18 +47,21 @@ export class FirmaService {
    */
   async obtenerFirma(medicoId: number): Promise<string | null> {
     try {
-      const { data: medico, error } = await supabase
-        .from('medicos')
-        .select('firma_digital')
-        .eq('id', medicoId)
-        .single();
-      
-      if (error) {
-        console.error('❌ Error obteniendo firma:', error);
-        return null;
+      const client = await postgresPool.connect();
+      try {
+        const result = await client.query(
+          'SELECT firma_digital FROM medicos WHERE id = $1 LIMIT 1',
+          [medicoId]
+        );
+        
+        if (result.rows.length === 0) {
+          return null;
+        }
+        
+        return result.rows[0].firma_digital || null;
+      } finally {
+        client.release();
       }
-      
-      return medico?.firma_digital || null;
     } catch (error) {
       console.error('❌ Error en obtenerFirma:', error);
       return null;

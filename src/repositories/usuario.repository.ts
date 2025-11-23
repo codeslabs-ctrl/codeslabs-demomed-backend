@@ -1,6 +1,4 @@
-import { USE_POSTGRES } from '../config/database-config.js';
 import { PostgresRepository } from './postgres.repository.js';
-import { SupabaseRepository } from './base.repository.js';
 
 export interface UsuarioData {
   id?: number | string;
@@ -17,37 +15,8 @@ export interface UsuarioData {
   fecha_actualizacion?: string;
 }
 
-// Clase para Supabase
-class UsuarioRepositorySupabase extends SupabaseRepository<UsuarioData> {
-  constructor() {
-    super('usuarios');
-  }
-
-  async findByUsername(username: string): Promise<UsuarioData | null> {
-    try {
-      const { data, error } = await this.client
-        .from(this.tableName)
-        .select('*')
-        .eq('username', username)
-        .eq('activo', true)
-        .single();
-
-      if (error) {
-        if (error.code === 'PGRST116') {
-          return null;
-        }
-        throw new Error(`Database error: ${error.message}`);
-      }
-
-      return data;
-    } catch (error) {
-      throw new Error(`Failed to find user by username: ${(error as Error).message}`);
-    }
-  }
-}
-
 // Clase para PostgreSQL
-class UsuarioRepositoryPostgres extends PostgresRepository<UsuarioData> {
+export class UsuarioRepository extends PostgresRepository<UsuarioData> {
   constructor() {
     super('usuarios', 'id');
   }
@@ -80,9 +49,6 @@ class UsuarioRepositoryPostgres extends PostgresRepository<UsuarioData> {
   }
 }
 
-// Exportar el tipo y la clase según la configuración
-export type UsuarioRepositoryType = typeof UsuarioRepositoryPostgres | typeof UsuarioRepositorySupabase;
-export const UsuarioRepository = USE_POSTGRES 
-  ? UsuarioRepositoryPostgres 
-  : UsuarioRepositorySupabase;
+// Exportar el tipo para uso en TypeScript
+export type UsuarioRepositoryType = typeof UsuarioRepository;
 

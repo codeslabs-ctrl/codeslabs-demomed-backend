@@ -1,8 +1,7 @@
 import { Request, Response } from 'express';
 import { PatientService } from '../services/patient.service.js';
 import { ApiResponse } from '../types/index.js';
-import { supabase, postgresPool } from '../config/database.js';
-import { USE_POSTGRES } from '../config/database-config.js';
+import { postgresPool } from '../config/database.js';
 
 interface AuthenticatedRequest extends Request {
   user?: {
@@ -253,42 +252,25 @@ export class PatientController {
         return;
       }
       
-      if (USE_POSTGRES) {
-        const client = await postgresPool.connect();
-        try {
-          const result = await client.query(
-            'SELECT COUNT(*) as count FROM consultas_pacientes WHERE paciente_id = $1',
-            [id]
-          );
-          
-          const count = parseInt(result.rows[0].count);
-          const response: ApiResponse = {
-            success: true,
-            data: { hasConsultations: count > 0 }
-          };
-          res.json(response);
-        } catch (dbError) {
-          console.error('❌ PostgreSQL error checking consultations:', dbError);
-          throw new Error(`Database error: ${(dbError as Error).message}`);
-        } finally {
-          client.release();
-        }
-      } else {
-        // Verificar si el paciente tiene consultas
-        const { count, error } = await supabase
-          .from('consultas_pacientes')
-          .select('*', { count: 'exact', head: true })
-          .eq('paciente_id', id);
+      // PostgreSQL implementation
+      const client = await postgresPool.connect();
+      try {
+        const result = await client.query(
+          'SELECT COUNT(*) as count FROM consultas_pacientes WHERE paciente_id = $1',
+          [id]
+        );
         
-        if (error) {
-          throw new Error(error.message);
-        }
-        
+        const count = parseInt(result.rows[0].count);
         const response: ApiResponse = {
           success: true,
-          data: { hasConsultations: (count || 0) > 0 }
+          data: { hasConsultations: count > 0 }
         };
         res.json(response);
+      } catch (dbError) {
+        console.error('❌ PostgreSQL error checking consultations:', dbError);
+        throw new Error(`Database error: ${(dbError as Error).message}`);
+      } finally {
+        client.release();
       }
     } catch (error) {
       const response: ApiResponse = {
@@ -322,52 +304,33 @@ export class PatientController {
         return;
       }
       
-      if (USE_POSTGRES) {
-        const client = await postgresPool.connect();
-        try {
-          const result = await client.query(
-            'UPDATE pacientes SET activo = $1, fecha_actualizacion = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
-            [activo, id]
-          );
-          
-          if (result.rows.length === 0) {
-            const response: ApiResponse = {
-              success: false,
-              error: { message: 'Paciente no encontrado' }
-            };
-            res.status(404).json(response);
-            return;
-          }
-          
-          const response: ApiResponse = {
-            success: true,
-            data: result.rows[0]
-          };
-          res.json(response);
-        } catch (dbError) {
-          console.error('❌ PostgreSQL error updating patient status:', dbError);
-          throw new Error(`Database error: ${(dbError as Error).message}`);
-        } finally {
-          client.release();
-        }
-      } else {
-        // Actualizar el estado del paciente
-        const { data, error } = await supabase
-          .from('pacientes')
-          .update({ activo })
-          .eq('id', id)
-          .select()
-          .single();
+      // PostgreSQL implementation
+      const client = await postgresPool.connect();
+      try {
+        const result = await client.query(
+          'UPDATE pacientes SET activo = $1, fecha_actualizacion = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
+          [activo, id]
+        );
         
-        if (error) {
-          throw new Error(error.message);
+        if (result.rows.length === 0) {
+          const response: ApiResponse = {
+            success: false,
+            error: { message: 'Paciente no encontrado' }
+          };
+          res.status(404).json(response);
+          return;
         }
         
         const response: ApiResponse = {
           success: true,
-          data
+          data: result.rows[0]
         };
         res.json(response);
+      } catch (dbError) {
+        console.error('❌ PostgreSQL error updating patient status:', dbError);
+        throw new Error(`Database error: ${(dbError as Error).message}`);
+      } finally {
+        client.release();
       }
     } catch (error) {
       const response: ApiResponse = {
@@ -573,6 +536,7 @@ export class PatientController {
   }
 
   async testFunction(req: Request<{ medicoId: string }, ApiResponse>, res: Response<ApiResponse>): Promise<void> {
+    const client = await postgresPool.connect();
     try {
       const { medicoId } = req.params;
       const id = parseInt(medicoId);
@@ -586,20 +550,21 @@ export class PatientController {
         return;
       }
 
-      // Test the function directly
-      const { data, error } = await supabase.rpc('get_pacientes_medico', {
-        p_medico_id: id
-      });
+      // Test the function directly using PostgreSQL
+      const result = await client.query(
+        `SELECT * FROM get_pacientes_medico($1)`,
+        [id]
+      );
 
       const response: ApiResponse = {
         success: true,
         data: {
           message: 'Function test result',
           medicoId: id,
-          rawData: data,
-          error: error,
-          dataType: typeof data,
-          dataLength: Array.isArray(data) ? data.length : 'not array'
+          rawData: result.rows,
+          error: null,
+          dataType: typeof result.rows,
+          dataLength: Array.isArray(result.rows) ? result.rows.length : 'not array'
         }
       };
       res.json(response);
@@ -609,10 +574,13 @@ export class PatientController {
         error: { message: (error as Error).message }
       };
       res.status(500).json(response);
+    } finally {
+      client.release();
     }
   }
 
   async testHistorico(req: Request<{ medicoId: string }, ApiResponse>, res: Response<ApiResponse>): Promise<void> {
+    const client = await postgresPool.connect();
     try {
       const { medicoId } = req.params;
       const id = parseInt(medicoId);
@@ -626,24 +594,24 @@ export class PatientController {
         return;
       }
 
-      // Test direct query to historico_pacientes
-      const { data, error } = await supabase
-        .from('historico_pacientes')
-        .select(`
-          *,
-          pacientes!inner(*)
-        `)
-        .eq('medico_id', id);
+      // Test direct query to historico_pacientes using PostgreSQL
+      const result = await client.query(
+        `SELECT hp.*, p.* 
+         FROM historico_pacientes hp
+         INNER JOIN pacientes p ON hp.paciente_id = p.id
+         WHERE hp.medico_id = $1`,
+        [id]
+      );
 
       const response: ApiResponse = {
         success: true,
         data: {
           message: 'Historico test result',
           medicoId: id,
-          rawData: data,
-          error: error,
-          dataType: typeof data,
-          dataLength: Array.isArray(data) ? data.length : 'not array'
+          rawData: result.rows,
+          error: null,
+          dataType: typeof result.rows,
+          dataLength: Array.isArray(result.rows) ? result.rows.length : 'not array'
         }
       };
       res.json(response);
@@ -653,6 +621,8 @@ export class PatientController {
         error: { message: (error as Error).message }
       };
       res.status(500).json(response);
+    } finally {
+      client.release();
     }
   }
 

@@ -1,6 +1,5 @@
 import dotenv from 'dotenv';
 import { Config } from '../types/index.js';
-import { USE_POSTGRES } from './database-config.js';
 import path from 'path';
 
 // Determine which config file to use based on NODE_ENV
@@ -27,16 +26,9 @@ export const config: Config = {
   port: parseInt(process.env['PORT'] || '3001'),
   nodeEnv: process.env['NODE_ENV'] || 'development',
   
-  // Supabase configuration
-  supabase: {
-    url: process.env['SUPABASE_URL'] || '',
-    anonKey: process.env['SUPABASE_ANON_KEY'] || ''
-  },
-  
   // PostgreSQL direct connection configuration
-  // Note: enabled is determined at BUILD TIME via database-config.ts
   postgres: {
-    enabled: USE_POSTGRES, // Set at build time
+    enabled: true, // Always enabled (Supabase removed)
     host: process.env['POSTGRES_HOST'] || 'localhost',
     port: parseInt(process.env['POSTGRES_PORT'] || '5432'),
     database: process.env['POSTGRES_DB'] || '',
@@ -75,29 +67,15 @@ export const config: Config = {
   }
 };
 
-// Validate required environment variables based on database selection
-if (!USE_POSTGRES) {
-  // If using Supabase, validate Supabase credentials
-  const requiredSupabaseVars: string[] = ['SUPABASE_URL', 'SUPABASE_ANON_KEY'];
-  for (const envVar of requiredSupabaseVars) {
-    if (!process.env[envVar]) {
-      console.error(`❌ Missing environment variable: ${envVar}`);
-      console.error(`   Current working directory: ${process.cwd()}`);
-      console.error(`   Config file path: ${configFile}`);
-      throw new Error(`Missing required environment variable: ${envVar}`);
-    }
-  }
-} else {
-  // If using PostgreSQL, validate PostgreSQL credentials
-  const requiredPostgresVars: string[] = ['POSTGRES_HOST', 'POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD'];
-  for (const envVar of requiredPostgresVars) {
-    if (!process.env[envVar]) {
-      console.error(`❌ Missing environment variable: ${envVar}`);
-      console.error(`   Current working directory: ${process.cwd()}`);
-      console.error(`   Config file path: ${configFile}`);
-      console.error(`   Available env vars starting with POSTGRES:`, 
-        Object.keys(process.env).filter(k => k.startsWith('POSTGRES')));
-      throw new Error(`Missing required environment variable: ${envVar}`);
-    }
+// Validate required PostgreSQL environment variables
+const requiredPostgresVars: string[] = ['POSTGRES_HOST', 'POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD'];
+for (const envVar of requiredPostgresVars) {
+  if (!process.env[envVar]) {
+    console.error(`❌ Missing environment variable: ${envVar}`);
+    console.error(`   Current working directory: ${process.cwd()}`);
+    console.error(`   Config file path: ${configFile}`);
+    console.error(`   Available env vars starting with POSTGRES:`, 
+      Object.keys(process.env).filter(k => k.startsWith('POSTGRES')));
+    throw new Error(`Missing required environment variable: ${envVar}`);
   }
 }

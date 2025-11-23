@@ -1,5 +1,4 @@
 import { Request, Response, NextFunction } from 'express';
-import { User, Session } from '@supabase/supabase-js';
 
 // API Response Types
 export interface ApiResponse<T = any> {
@@ -23,18 +22,17 @@ export interface PaginationInfo {
 
 // Request Types
 export interface AuthenticatedRequest extends Request {
-  user?: User;
-  session?: Session;
+  user?: {
+    id: string;
+    email?: string;
+    [key: string]: any;
+  };
 }
 
 // Environment Configuration
 export interface Config {
   port: number;
   nodeEnv: string;
-  supabase: {
-    url: string;
-    anonKey: string;
-  };
   postgres: {
     enabled: boolean;
     host: string;
@@ -142,12 +140,6 @@ export type ValidationSchema = {
   validate: (data: any) => { error?: any; value?: any };
 };
 
-// Supabase Types
-export interface SupabaseResponse<T = any> {
-  data: T | null;
-  error: any;
-  count?: number;
-}
 
 // Generic CRUD Types
 export interface CreateRequest<T = any> {

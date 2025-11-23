@@ -1,5 +1,4 @@
 import { Request, Response, NextFunction } from 'express';
-import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import cors from 'cors';
 import Joi from 'joi';
@@ -44,45 +43,7 @@ export const corsMiddleware = cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 });
 
-// Rate limiting general
-export const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 100,
-  message: 'Demasiadas solicitudes desde esta IP'
-});
-
-// Rate limiting para autenticación
-export const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 10, // Aumentado de 5 a 10 intentos
-  message: 'Demasiados intentos de login. Debes esperar 15 minutos antes de intentar nuevamente.',
-  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-  handler: (_req, res) => {
-    res.status(429).json({
-      success: false,
-      message: 'Demasiados intentos de login. Debes esperar 15 minutos antes de intentar nuevamente.',
-      error: {
-        code: 'RATE_LIMIT_EXCEEDED',
-        retryAfter: Math.ceil(15 * 60) // segundos
-      }
-    });
-  }
-});
-
-// Rate limiting para informes médicos
-export const informeLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minuto
-  max: 3,
-  message: 'Demasiados informes médicos'
-});
-
-// Rate limiting para emails
-export const emailLimiter = rateLimit({
-  windowMs: 5 * 60 * 1000, // 5 minutos
-  max: 10,
-  message: 'Demasiados emails enviados'
-});
+// Rate limiting eliminado - No se aplican límites de tiempo a las peticiones
 
 // Middleware de autenticación JWT
 export const authenticateToken = (req: Request, res: Response, next: NextFunction): void => {

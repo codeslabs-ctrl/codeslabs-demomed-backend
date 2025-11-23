@@ -1,16 +1,13 @@
 /**
- * Database Configuration - Generated at BUILD TIME
+ * Database Configuration
  * 
- * This file is auto-generated. Do not edit manually.
- * Generated at: 2025-11-18T20:00:09.158Z
- * 
- * To change the database, set USE_POSTGRES environment variable before building:
- * - USE_POSTGRES=true npm run build  (uses PostgreSQL)
- * - USE_POSTGRES=false npm run build (uses Supabase)
+ * This system now uses PostgreSQL exclusively.
+ * Supabase support has been removed.
+ * Generated at: 2025-11-23T18:10:05.720Z
  */
 
-// This constant is set at BUILD TIME and compiled into the code
-export const USE_POSTGRES: boolean = false;
+// Always use PostgreSQL
+export const USE_POSTGRES: boolean = true;
 
 // Log which database will be used (visible during build)
-console.log(`🔧 Build-time database selection: ${USE_POSTGRES ? 'PostgreSQL' : 'Supabase'}`);
+console.log(`🔧 Database: PostgreSQL`);

@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import informeMedicoService from '../services/informe-medico.service';
 import { PDFService } from '../services/pdf.service';
 import { EmailService } from '../services/email.service.js';
-import { supabase } from '../config/database';
+import { postgresPool } from '../config/database.js';
 
 export class InformeMedicoController {
   // =====================================================
@@ -520,19 +520,26 @@ export class InformeMedicoController {
         return;
       }
 
-      // Obtener datos del paciente (email y nombre)
+      // Obtener datos del paciente (email y nombre) (PostgreSQL)
       const pacienteId = informe.paciente_id;
       console.log('📧 [enviarInforme] Buscando paciente:', pacienteId);
-      const { data: paciente, error: pacError } = await supabase
-        .from('pacientes')
-        .select('email, nombres, apellidos')
-        .eq('id', pacienteId)
-        .single();
+      const pacienteClient = await postgresPool.connect();
+      let paciente: any;
+      try {
+        const pacienteResult = await pacienteClient.query(
+          'SELECT email, nombres, apellidos FROM pacientes WHERE id = $1 LIMIT 1',
+          [pacienteId]
+        );
 
-      if (pacError || !paciente?.email) {
-        console.warn('⚠️ [enviarInforme] Paciente sin email o error:', { pacError, paciente });
-        res.status(400).json({ success: false, message: 'Paciente sin email registrado' });
-        return;
+        if (pacienteResult.rows.length === 0 || !pacienteResult.rows[0]?.email) {
+          console.warn('⚠️ [enviarInforme] Paciente sin email o no encontrado');
+          res.status(400).json({ success: false, message: 'Paciente sin email registrado' });
+          return;
+        }
+
+        paciente = pacienteResult.rows[0];
+      } finally {
+        pacienteClient.release();
       }
 
       // Generar PDF con el servicio existente

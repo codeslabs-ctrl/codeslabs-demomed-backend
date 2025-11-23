@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { supabase } from '../config/database.js';
+import { postgresPool } from '../config/database.js';
 import { EmailService } from '../services/email.service.js';
 import { ApiResponse } from '../types/index.js';
 import bcrypt from 'bcrypt';
@@ -19,44 +19,50 @@ export class AuthRecoveryController {
         return;
       }
 
-      // Buscar usuario por email
-      const { data: usuario, error: userError } = await supabase
-        .from('usuarios')
-        .select('id, email, username')
-        .eq('email', email)
-        .single();
+      // Buscar usuario por email (PostgreSQL)
+      const client = await postgresPool.connect();
+      let usuario: any;
+      try {
+        const result = await client.query(
+          'SELECT id, email, username FROM usuarios WHERE email = $1 LIMIT 1',
+          [email]
+        );
 
-      if (userError || !usuario) {
-        // Por seguridad, no revelar si el email existe o no
-        res.json({
-          success: true,
-          data: { message: 'Si el email existe, recibirá un código de recuperación' }
-        } as ApiResponse<{ message: string }>);
-        return;
+        if (result.rows.length === 0) {
+          // Por seguridad, no revelar si el email existe o no
+          res.json({
+            success: true,
+            data: { message: 'Si el email existe, recibirá un código de recuperación' }
+          } as ApiResponse<{ message: string }>);
+          return;
+        }
+
+        usuario = result.rows[0];
+      } finally {
+        client.release();
       }
 
       // Generar OTP (8 dígitos)
       const otp = Math.floor(10000000 + Math.random() * 90000000).toString();
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutos
 
-      // Guardar OTP en la base de datos
-      const { error: otpError } = await supabase
-        .from('otp_tokens')
-        .insert({
-          usuario_id: usuario.id,
-          token: otp,
-          tipo: 'password_recovery',
-          expires_at: expiresAt.toISOString(),
-          usado: false
-        });
-
-      if (otpError) {
+      // Guardar OTP en la base de datos (PostgreSQL)
+      const otpClient = await postgresPool.connect();
+      try {
+        await otpClient.query(
+          `INSERT INTO otp_tokens (usuario_id, token, tipo, expires_at, usado)
+           VALUES ($1, $2, $3, $4, false)`,
+          [usuario.id, otp, 'password_recovery', expiresAt]
+        );
+      } catch (otpError) {
         console.error('Error saving OTP:', otpError);
         res.status(500).json({
           success: false,
           error: { message: 'Error generando código de recuperación' }
         } as ApiResponse<null>);
         return;
+      } finally {
+        otpClient.release();
       }
 
       // Enviar email con OTP
@@ -115,63 +121,84 @@ export class AuthRecoveryController {
         return;
       }
 
-      // Buscar usuario
-      const { data: usuario, error: userError } = await supabase
-        .from('usuarios')
-        .select('id, email')
-        .eq('email', email)
-        .single();
+      // Buscar usuario (PostgreSQL)
+      const client = await postgresPool.connect();
+      let usuario: any;
+      try {
+        const result = await client.query(
+          'SELECT id, email FROM usuarios WHERE email = $1 LIMIT 1',
+          [email]
+        );
 
-      if (userError || !usuario) {
-        res.status(404).json({
-          success: false,
-          error: { message: 'Usuario no encontrado' }
-        } as ApiResponse<null>);
-        return;
+        if (result.rows.length === 0) {
+          res.status(404).json({
+            success: false,
+            error: { message: 'Usuario no encontrado' }
+          } as ApiResponse<null>);
+          return;
+        }
+
+        usuario = result.rows[0];
+      } finally {
+        client.release();
       }
 
-      // Verificar OTP
-      const { data: otpData, error: otpError } = await supabase
-        .from('otp_tokens')
-        .select('*')
-        .eq('usuario_id', usuario.id)
-        .eq('token', otp)
-        .eq('tipo', 'password_recovery')
-        .eq('usado', false)
-        .gte('expires_at', new Date().toISOString())
-        .single();
+      // Verificar OTP (PostgreSQL)
+      const otpClient = await postgresPool.connect();
+      let otpData: any;
+      try {
+        const otpResult = await otpClient.query(
+          `SELECT * FROM otp_tokens
+           WHERE usuario_id = $1
+             AND token = $2
+             AND tipo = $3
+             AND usado = false
+             AND expires_at >= NOW()
+           LIMIT 1`,
+          [usuario.id, otp, 'password_recovery']
+        );
 
-      if (otpError || !otpData) {
-        res.status(400).json({
-          success: false,
-          error: { message: 'Código OTP inválido o expirado' }
-        } as ApiResponse<null>);
-        return;
+        if (otpResult.rows.length === 0) {
+          res.status(400).json({
+            success: false,
+            error: { message: 'Código OTP inválido o expirado' }
+          } as ApiResponse<null>);
+          return;
+        }
+
+        otpData = otpResult.rows[0];
+      } finally {
+        otpClient.release();
       }
 
-      // Cambiar contraseña
-      const bcrypt = require('bcrypt');
+      // Cambiar contraseña (PostgreSQL)
       const hashedPassword = await bcrypt.hash(newPassword, 10);
+      const updateClient = await postgresPool.connect();
+      try {
+        await updateClient.query('BEGIN');
+        
+        await updateClient.query(
+          'UPDATE usuarios SET password_hash = $1 WHERE id = $2',
+          [hashedPassword, usuario.id]
+        );
 
-      const { error: updateError } = await supabase
-        .from('usuarios')
-        .update({ password_hash: hashedPassword })
-        .eq('id', usuario.id);
+        await updateClient.query(
+          'UPDATE otp_tokens SET usado = true WHERE id = $1',
+          [otpData.id]
+        );
 
-      if (updateError) {
+        await updateClient.query('COMMIT');
+      } catch (updateError) {
+        await updateClient.query('ROLLBACK');
         console.error('Error updating password:', updateError);
         res.status(500).json({
           success: false,
           error: { message: 'Error actualizando contraseña' }
         } as ApiResponse<null>);
         return;
+      } finally {
+        updateClient.release();
       }
-
-      // Marcar OTP como usado
-      await supabase
-        .from('otp_tokens')
-        .update({ usado: true })
-        .eq('id', otpData.id);
 
       res.json({
         success: true,
@@ -200,43 +227,49 @@ export class AuthRecoveryController {
         return;
       }
 
-      // Buscar usuario por email
-      const { data: usuario, error: userError } = await supabase
-        .from('usuarios')
-        .select('id, email, username')
-        .eq('email', email)
-        .single();
+      // Buscar usuario por email (PostgreSQL)
+      const client = await postgresPool.connect();
+      let usuario: any;
+      try {
+        const result = await client.query(
+          'SELECT id, email, username FROM usuarios WHERE email = $1 LIMIT 1',
+          [email]
+        );
 
-      if (userError || !usuario) {
-        res.status(404).json({
-          success: false,
-          error: { message: 'Usuario no encontrado' }
-        } as ApiResponse<null>);
-        return;
+        if (result.rows.length === 0) {
+          res.status(404).json({
+            success: false,
+            error: { message: 'Usuario no encontrado' }
+          } as ApiResponse<null>);
+          return;
+        }
+
+        usuario = result.rows[0];
+      } finally {
+        client.release();
       }
 
       // Generar OTP (8 dígitos)
       const otp = Math.floor(10000000 + Math.random() * 90000000).toString();
       const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 minutos
 
-      // Guardar OTP en la base de datos
-      const { error: otpError } = await supabase
-        .from('otp_tokens')
-        .insert({
-          usuario_id: usuario.id,
-          token: otp,
-          tipo: 'user_verification',
-          expires_at: expiresAt.toISOString(),
-          usado: false
-        });
-
-      if (otpError) {
+      // Guardar OTP en la base de datos (PostgreSQL)
+      const otpClient = await postgresPool.connect();
+      try {
+        await otpClient.query(
+          `INSERT INTO otp_tokens (usuario_id, token, tipo, expires_at, usado)
+           VALUES ($1, $2, $3, $4, false)`,
+          [usuario.id, otp, 'user_verification', expiresAt]
+        );
+      } catch (otpError) {
         console.error('Error saving OTP:', otpError);
         res.status(500).json({
           success: false,
           error: { message: 'Error generando código de verificación' }
         } as ApiResponse<null>);
         return;
+      } finally {
+        otpClient.release();
       }
 
       // Enviar email con OTP
@@ -286,63 +319,83 @@ export class AuthRecoveryController {
         return;
       }
 
-      // Buscar usuario
-      const { data: usuario, error: userError } = await supabase
-        .from('usuarios')
-        .select('id, email')
-        .eq('email', email)
-        .single();
+      // Buscar usuario (PostgreSQL)
+      const client = await postgresPool.connect();
+      let usuario: any;
+      try {
+        const result = await client.query(
+          'SELECT id, email FROM usuarios WHERE email = $1 LIMIT 1',
+          [email]
+        );
 
-      if (userError || !usuario) {
-        res.status(404).json({
-          success: false,
-          error: { message: 'Usuario no encontrado' }
-        } as ApiResponse<null>);
-        return;
+        if (result.rows.length === 0) {
+          res.status(404).json({
+            success: false,
+            error: { message: 'Usuario no encontrado' }
+          } as ApiResponse<null>);
+          return;
+        }
+
+        usuario = result.rows[0];
+      } finally {
+        client.release();
       }
 
-      // Verificar OTP
-      const { data: otpData, error: otpError } = await supabase
-        .from('otp_tokens')
-        .select('*')
-        .eq('usuario_id', usuario.id)
-        .eq('token', otp)
-        .eq('tipo', 'user_verification')
-        .eq('usado', false)
-        .gte('expires_at', new Date().toISOString())
-        .single();
+      // Verificar OTP (PostgreSQL)
+      const otpClient = await postgresPool.connect();
+      let otpData: any;
+      try {
+        const otpResult = await otpClient.query(
+          `SELECT * FROM otp_tokens
+           WHERE usuario_id = $1
+             AND token = $2
+             AND tipo = $3
+             AND usado = false
+             AND expires_at >= NOW()
+           LIMIT 1`,
+          [usuario.id, otp, 'user_verification']
+        );
 
-      if (otpError || !otpData) {
-        res.status(400).json({
-          success: false,
-          error: { message: 'Código OTP inválido o expirado' }
-        } as ApiResponse<null>);
-        return;
+        if (otpResult.rows.length === 0) {
+          res.status(400).json({
+            success: false,
+            error: { message: 'Código OTP inválido o expirado' }
+          } as ApiResponse<null>);
+          return;
+        }
+
+        otpData = otpResult.rows[0];
+      } finally {
+        otpClient.release();
       }
 
-      // Marcar usuario como verificado
-      const { error: updateError } = await supabase
-        .from('usuarios')
-        .update({ 
-          verificado: true,
-          fecha_verificacion: new Date().toISOString()
-        })
-        .eq('id', usuario.id);
+      // Marcar usuario como verificado y OTP como usado (PostgreSQL)
+      const updateClient = await postgresPool.connect();
+      try {
+        await updateClient.query('BEGIN');
+        
+        await updateClient.query(
+          `UPDATE usuarios SET verificado = true, fecha_verificacion = NOW() WHERE id = $1`,
+          [usuario.id]
+        );
 
-      if (updateError) {
+        await updateClient.query(
+          'UPDATE otp_tokens SET usado = true WHERE id = $1',
+          [otpData.id]
+        );
+
+        await updateClient.query('COMMIT');
+      } catch (updateError) {
+        await updateClient.query('ROLLBACK');
         console.error('Error updating user verification:', updateError);
         res.status(500).json({
           success: false,
           error: { message: 'Error verificando usuario' }
         } as ApiResponse<null>);
         return;
+      } finally {
+        updateClient.release();
       }
-
-      // Marcar OTP como usado
-      await supabase
-        .from('otp_tokens')
-        .update({ usado: true })
-        .eq('id', otpData.id);
 
       res.json({
         success: true,
@@ -372,50 +425,65 @@ export class AuthRecoveryController {
         return;
       }
 
-      // Buscar usuario
-      const { data: usuario, error: userError } = await supabase
-        .from('usuarios')
-        .select('id, email')
-        .eq('email', email)
-        .single();
+      // Buscar usuario (PostgreSQL)
+      const client = await postgresPool.connect();
+      let usuario: any;
+      try {
+        const result = await client.query(
+          'SELECT id, email FROM usuarios WHERE email = $1 LIMIT 1',
+          [email]
+        );
 
-      if (userError || !usuario) {
-        res.status(404).json({
-          success: false,
-          error: { message: 'Usuario no encontrado' }
-        } as ApiResponse<null>);
-        return;
+        if (result.rows.length === 0) {
+          res.status(404).json({
+            success: false,
+            error: { message: 'Usuario no encontrado' }
+          } as ApiResponse<null>);
+          return;
+        }
+
+        usuario = result.rows[0];
+      } finally {
+        client.release();
       }
 
-      // Verificar OTP
+      // Verificar OTP (PostgreSQL)
       console.log('🔐 Backend - Verificando OTP:', { 
         userId: usuario.id, 
         otp: otp, 
         currentTime: new Date().toISOString() 
       });
 
-      const { data: otpData, error: otpError } = await supabase
-        .from('otp_tokens')
-        .select('*')
-        .eq('usuario_id', usuario.id)
-        .eq('token', otp)
-        .eq('tipo', 'password_recovery')
-        .eq('usado', false)
-        .gt('expires_at', new Date().toISOString())
-        .single();
+      const otpClient = await postgresPool.connect();
+      let otpData: any;
+      try {
+        const otpResult = await otpClient.query(
+          `SELECT * FROM otp_tokens
+           WHERE usuario_id = $1
+             AND token = $2
+             AND tipo = $3
+             AND usado = false
+             AND expires_at > NOW()
+           LIMIT 1`,
+          [usuario.id, otp, 'password_recovery']
+        );
 
-      console.log('🔐 Backend - Resultado de verificación OTP:', { 
-        otpData, 
-        otpError: otpError?.message 
-      });
+        console.log('🔐 Backend - Resultado de verificación OTP:', { 
+          found: otpResult.rows.length > 0
+        });
 
-      if (otpError || !otpData) {
-        console.log('🔐 Backend - OTP inválido o expirado');
-        res.status(400).json({
-          success: false,
-          error: { message: 'Código OTP inválido o expirado' }
-        } as ApiResponse<null>);
-        return;
+        if (otpResult.rows.length === 0) {
+          console.log('🔐 Backend - OTP inválido o expirado');
+          res.status(400).json({
+            success: false,
+            error: { message: 'Código OTP inválido o expirado' }
+          } as ApiResponse<null>);
+          return;
+        }
+
+        otpData = otpResult.rows[0];
+      } finally {
+        otpClient.release();
       }
 
       // Validar nueva contraseña
@@ -431,24 +499,28 @@ export class AuthRecoveryController {
       const saltRounds = 10;
       const newPasswordHash = await bcrypt.hash(newPassword, saltRounds);
 
-      // Actualizar contraseña
-      const { error: updateError } = await supabase
-        .from('usuarios')
-        .update({
-          password_hash: newPasswordHash,
-          password_changed_at: new Date().toISOString()
-        })
-        .eq('id', usuario.id);
+      // Actualizar contraseña y marcar OTP como usado (PostgreSQL)
+      const updateClient = await postgresPool.connect();
+      try {
+        await updateClient.query('BEGIN');
+        
+        await updateClient.query(
+          `UPDATE usuarios SET password_hash = $1, password_changed_at = NOW() WHERE id = $2`,
+          [newPasswordHash, usuario.id]
+        );
 
-      if (updateError) {
-        throw new Error(`Error actualizando contraseña: ${updateError.message}`);
+        await updateClient.query(
+          'UPDATE otp_tokens SET usado = true, fecha_uso = NOW() WHERE id = $1',
+          [otpData.id]
+        );
+
+        await updateClient.query('COMMIT');
+      } catch (updateError) {
+        await updateClient.query('ROLLBACK');
+        throw new Error(`Error actualizando contraseña: ${(updateError as Error).message}`);
+      } finally {
+        updateClient.release();
       }
-
-      // Marcar OTP como usado
-      await supabase
-        .from('otp_tokens')
-        .update({ usado: true, fecha_uso: new Date().toISOString() })
-        .eq('id', otpData.id);
 
       res.json({
         success: true,
