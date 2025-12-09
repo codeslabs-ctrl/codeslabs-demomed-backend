@@ -11,10 +11,15 @@ export class ContextualDataController {
    */
   obtenerDatosContextuales = async (req: Request, res: Response): Promise<void> => {
     try {
+      console.log('📥 Iniciando obtenerDatosContextuales');
+      console.log('📥 Parámetros recibidos:', req.params);
+      console.log('📥 Clínica alias:', req.clinicaAlias);
+      
       const { pacienteId, medicoId } = req.params;
       const clinicaAlias = req.clinicaAlias;
 
       if (!pacienteId || !medicoId) {
+        console.error('❌ Faltan parámetros: pacienteId o medicoId');
         res.status(400).json({ 
           success: false, 
           message: 'ID de paciente y médico requeridos' 
@@ -23,6 +28,7 @@ export class ContextualDataController {
       }
 
       if (!clinicaAlias) {
+        console.error('❌ Clínica no identificada en el request');
         res.status(400).json({ 
           success: false, 
           message: 'Clínica no identificada' 
@@ -34,6 +40,7 @@ export class ContextualDataController {
       const medicoIdNum = parseInt(medicoId);
 
       if (isNaN(pacienteIdNum) || isNaN(medicoIdNum)) {
+        console.error('❌ IDs inválidos:', { pacienteId, medicoId, pacienteIdNum, medicoIdNum });
         res.status(400).json({ 
           success: false, 
           message: 'IDs de paciente y médico deben ser números válidos' 
@@ -41,23 +48,37 @@ export class ContextualDataController {
         return;
       }
 
+      console.log(`✅ Parámetros validados - Paciente: ${pacienteIdNum}, Médico: ${medicoIdNum}, Clínica: ${clinicaAlias}`);
+      console.log('🔄 Llamando a contextualDataService.obtenerDatosContextuales...');
+
       const datosContextuales = await contextualDataService.obtenerDatosContextuales(
         pacienteIdNum, 
         medicoIdNum, 
         clinicaAlias
       );
 
+      console.log('✅ Datos contextuales obtenidos exitosamente, enviando respuesta');
       res.json({
         success: true,
         data: datosContextuales
       });
     } catch (error: any) {
-      console.error('Error en obtenerDatosContextuales:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Error obteniendo datos contextuales',
-        error: error.message
-      });
+      console.error('❌ Error en obtenerDatosContextuales:', error);
+      console.error('❌ Tipo de error:', error?.constructor?.name);
+      console.error('❌ Mensaje de error:', error?.message);
+      console.error('❌ Stack trace:', error?.stack);
+      
+      // Asegurarse de que la respuesta no se haya enviado ya
+      if (!res.headersSent) {
+        res.status(500).json({
+          success: false,
+          message: 'Error obteniendo datos contextuales',
+          error: error?.message || 'Error desconocido',
+          details: process.env['NODE_ENV'] === 'development' ? error?.stack : undefined
+        });
+      } else {
+        console.error('⚠️ Respuesta ya enviada, no se puede enviar error');
+      }
     }
   };
 

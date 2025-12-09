@@ -17,11 +17,13 @@ export class PDFService {
    * @returns Buffer del PDF generado
    */
   async generarPDFInforme(informeId: number): Promise<Buffer> {
+    let browser: any = null;
+    const client = await postgresPool.connect();
+    
     try {
       console.log(`🔄 Generando PDF para informe ${informeId}`);
       
       // Obtener el informe con datos básicos del médico (PostgreSQL)
-      const client = await postgresPool.connect();
       let informe: any;
       try {
         const result = await client.query(
@@ -47,6 +49,9 @@ export class PDFService {
           nombres: informe.medico_nombres,
           apellidos: informe.medico_apellidos
         };
+      } catch (dbError: any) {
+        console.error('❌ Error obteniendo informe de la base de datos:', dbError);
+        throw new Error(`Error obteniendo informe: ${dbError.message}`);
       } finally {
         client.release();
       }
@@ -59,55 +64,140 @@ export class PDFService {
       });
 
       // Obtener firma digital del médico
-      const firmaBase64 = await this.firmaService.obtenerFirmaBase64(informe.medico_id);
+      let firmaBase64 = '';
+      try {
+        firmaBase64 = await this.firmaService.obtenerFirmaBase64(informe.medico_id);
+        console.log('✅ Firma obtenida:', firmaBase64 ? 'Presente' : 'No disponible');
+      } catch (firmaError: any) {
+        console.warn('⚠️ Error obteniendo firma (continuando sin firma):', firmaError.message);
+        firmaBase64 = '';
+      }
       
       // Generar HTML para el PDF
-      const htmlContent = await this.generarHTMLParaPDF(informe, firmaBase64);
+      let htmlContent = '';
+      try {
+        htmlContent = await this.generarHTMLParaPDF(informe, firmaBase64);
+        console.log('✅ HTML generado, tamaño:', htmlContent.length, 'caracteres');
+      } catch (htmlError: any) {
+        console.error('❌ Error generando HTML:', htmlError);
+        throw new Error(`Error generando HTML para PDF: ${htmlError.message}`);
+      }
       
       // Configurar Puppeteer
-      const browser = await puppeteer.launch({
-        headless: true,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-gpu',
-          '--disable-software-rasterizer',
-          '--disable-extensions',
-          '--single-process'
-        ],
-        ignoreDefaultArgs: ['--disable-extensions']
-      });
+      try {
+        console.log('🔄 Iniciando Puppeteer...');
+        browser = await puppeteer.launch({
+          headless: true,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+            '--disable-software-rasterizer',
+            '--disable-extensions',
+            '--disable-web-security',
+            '--disable-features=IsolateOrigins,site-per-process'
+          ],
+          timeout: 60000
+        });
+        console.log('✅ Puppeteer iniciado correctamente');
+      } catch (puppeteerError: any) {
+        console.error('❌ Error iniciando Puppeteer:', puppeteerError);
+        throw new Error(`Error iniciando navegador: ${puppeteerError.message}`);
+      }
       
-      const page = await browser.newPage();
-      
-      // Establecer el contenido HTML
-      await page.setContent(htmlContent, {
-        waitUntil: 'networkidle0',
-        timeout: 30000
-      });
-      
-      // Generar PDF
-      const pdfBuffer = await page.pdf({
-        format: 'A4',
-        printBackground: true,
-        margin: {
-          top: '20mm',
-          right: '15mm',
-          bottom: '20mm',
-          left: '15mm'
+      let page: any = null;
+      try {
+        page = await browser.newPage();
+        
+        // Configurar timeouts más largos
+        page.setDefaultNavigationTimeout(60000);
+        page.setDefaultTimeout(60000);
+        
+        // Establecer el contenido HTML
+        console.log('🔄 Estableciendo contenido HTML...');
+        await page.setContent(htmlContent, {
+          waitUntil: 'load',
+          timeout: 60000
+        });
+        console.log('✅ Contenido HTML establecido');
+        
+        // Esperar un poco más para asegurar que todo esté renderizado
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        console.log('✅ Espera adicional completada');
+        
+        // Verificar que la página sigue conectada
+        if (page.isClosed()) {
+          throw new Error('La página se cerró antes de generar el PDF');
         }
-      });
+        
+        // Generar PDF
+        let pdfBuffer: Buffer;
+        console.log('🔄 Generando PDF...');
+        const pdf = await Promise.race([
+          page.pdf({
+            format: 'A4',
+            printBackground: true,
+            margin: {
+              top: '20mm',
+              right: '15mm',
+              bottom: '20mm',
+              left: '15mm'
+            },
+            preferCSSPageSize: false
+          }),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Timeout generando PDF')), 60000)
+          )
+        ]) as Buffer;
+        
+        pdfBuffer = Buffer.from(pdf);
+        console.log('✅ PDF generado, tamaño:', pdfBuffer.length, 'bytes');
+        
+        // Cerrar la página antes de cerrar el navegador
+        await page.close();
+        page = null;
+        
+        // Cerrar el navegador después de generar el PDF
+        await browser.close();
+        browser = null;
+        console.log('✅ Navegador cerrado correctamente');
+        
+        console.log(`✅ PDF generado exitosamente para informe ${informeId}`);
+        return pdfBuffer;
+      } catch (contentError: any) {
+        console.error('❌ Error en proceso de generación:', contentError);
+        if (page && !page.isClosed()) {
+          try {
+            await page.close();
+          } catch (e) {
+            console.warn('⚠️ Error cerrando página:', e);
+          }
+        }
+        throw new Error(`Error generando PDF: ${contentError.message}`);
+      }
       
-      await browser.close();
       
-      console.log('✅ Navegador cerrado correctamente');
-      
-      console.log(`✅ PDF generado exitosamente para informe ${informeId}`);
-      return Buffer.from(pdfBuffer);
-      
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error generando PDF:', error);
+      console.error('Stack trace:', error.stack);
+      
+      // Asegurar que el navegador se cierre en caso de error
+      if (browser) {
+        try {
+          const pages = await browser.pages();
+          for (const p of pages) {
+            if (!p.isClosed()) {
+              await p.close();
+            }
+          }
+          await browser.close();
+          console.log('✅ Navegador cerrado correctamente después del error');
+        } catch (closeError) {
+          console.error('⚠️ Error cerrando navegador:', closeError);
+        }
+      }
+      
       throw error;
     }
   }
@@ -451,6 +541,11 @@ export class PDFService {
    */
   private async obtenerLogoBase64(logoPath: string): Promise<string> {
     try {
+      if (!logoPath) {
+        console.warn('⚠️ No se proporcionó ruta de logo');
+        return '';
+      }
+
       // Si la ruta es relativa (empieza con ./), resolverla desde el directorio del proyecto
       // El código compilado está en dist/, así que subimos 2 niveles para llegar a la raíz
       let logoFile: string;
@@ -472,13 +567,18 @@ export class PDFService {
       if (fs.existsSync(logoFile)) {
         const logoBuffer = fs.readFileSync(logoFile);
         const base64 = logoBuffer.toString('base64');
-        const mimeType = logoPath.endsWith('.svg') ? 'image/svg+xml' : 'image/png';
+        const mimeType = logoPath.endsWith('.svg') ? 'image/svg+xml' : 
+                        logoPath.endsWith('.webp') ? 'image/webp' : 
+                        logoPath.endsWith('.jpg') || logoPath.endsWith('.jpeg') ? 'image/jpeg' :
+                        'image/png';
+        console.log('✅ Logo cargado correctamente, tipo:', mimeType);
         return `data:${mimeType};base64,${base64}`;
       } else {
-        console.error('❌ Logo no encontrado en:', logoFile);
+        console.warn('⚠️ Logo no encontrado en:', logoFile);
+        console.warn('⚠️ Continuando sin logo');
       }
-    } catch (error) {
-      console.error('❌ Error leyendo logo:', error);
+    } catch (error: any) {
+      console.warn('⚠️ Error leyendo logo (continuando sin logo):', error.message);
     }
     return '';
   }

@@ -54,19 +54,47 @@ export class ContextualDataService {
     clinicaAlias: string
   ): Promise<DatosContextuales> {
     try {
+      console.log(`🔍 Iniciando obtención de datos contextuales - Paciente: ${pacienteId}, Médico: ${medicoId}, Clínica: ${clinicaAlias}`);
+      
       // Obtener datos del paciente
-      const paciente = await this.obtenerDatosPaciente(pacienteId, clinicaAlias);
+      let paciente: DatosPaciente;
+      try {
+        paciente = await this.obtenerDatosPaciente(pacienteId, clinicaAlias);
+      } catch (error: any) {
+        console.error(`❌ Error obteniendo paciente ${pacienteId}:`, error);
+        throw new Error(`Error obteniendo datos del paciente: ${error.message}`);
+      }
       
       // Obtener datos del médico
-      const medico = await this.obtenerDatosMedico(medicoId, clinicaAlias);
+      let medico: DatosMedico;
+      try {
+        medico = await this.obtenerDatosMedico(medicoId, clinicaAlias);
+      } catch (error: any) {
+        console.error(`❌ Error obteniendo médico ${medicoId}:`, error);
+        throw new Error(`Error obteniendo datos del médico: ${error.message}`);
+      }
       
       // Obtener último informe médico entre este paciente y médico
-      const ultimoInforme = await this.obtenerUltimoInforme(pacienteId, medicoId, clinicaAlias);
-      console.log(`📄 Último informe obtenido:`, ultimoInforme);
+      let ultimoInforme: UltimoInforme | undefined;
+      try {
+        ultimoInforme = await this.obtenerUltimoInforme(pacienteId, medicoId, clinicaAlias);
+        console.log(`📄 Último informe obtenido:`, ultimoInforme);
+      } catch (error: any) {
+        console.error(`⚠️ Error obteniendo último informe (continuando):`, error);
+        // No lanzamos error aquí, solo continuamos sin último informe
+        ultimoInforme = undefined;
+      }
       
       // Obtener historial de consultas (últimas 5)
-      const historialConsultas = await this.obtenerHistorialConsultas(pacienteId, medicoId, clinicaAlias);
-      console.log(`📚 Historial obtenido:`, historialConsultas);
+      let historialConsultas: UltimoInforme[] = [];
+      try {
+        historialConsultas = await this.obtenerHistorialConsultas(pacienteId, medicoId, clinicaAlias);
+        console.log(`📚 Historial obtenido:`, historialConsultas);
+      } catch (error: any) {
+        console.error(`⚠️ Error obteniendo historial (continuando):`, error);
+        // No lanzamos error aquí, solo continuamos sin historial
+        historialConsultas = [];
+      }
 
       const resultado = {
         paciente,
@@ -75,10 +103,11 @@ export class ContextualDataService {
         historialConsultas
       };
       
-      console.log(`✅ Datos contextuales completos:`, resultado);
+      console.log(`✅ Datos contextuales completos obtenidos exitosamente`);
       return resultado;
-    } catch (error) {
-      console.error('Error obteniendo datos contextuales:', error);
+    } catch (error: any) {
+      console.error('❌ Error obteniendo datos contextuales:', error);
+      console.error('Stack trace:', error.stack);
       throw error;
     }
   }
@@ -97,7 +126,7 @@ export class ContextualDataService {
       );
 
       if (result.rows.length === 0) {
-        throw new Error('Paciente no encontrado');
+        throw new Error(`Paciente con ID ${pacienteId} no encontrado`);
       }
 
       const data = result.rows[0];
@@ -107,15 +136,18 @@ export class ContextualDataService {
 
       return {
         id: data.id,
-        nombres: data.nombres,
-        apellidos: data.apellidos,
+        nombres: data.nombres || '',
+        apellidos: data.apellidos || '',
         edad: data.edad || 0,
-        cedula: data.cedula,
-        telefono: data.telefono,
-        email: data.email,
-        direccion: data.direccion,
-        fecha_nacimiento: data.fecha_nacimiento
+        cedula: data.cedula || '',
+        telefono: data.telefono || '',
+        email: data.email || '',
+        direccion: data.direccion || '',
+        fecha_nacimiento: data.fecha_nacimiento || ''
       };
+    } catch (error: any) {
+      console.error(`❌ Error en obtenerDatosPaciente para paciente ${pacienteId}:`, error);
+      throw error;
     } finally {
       client.release();
     }
@@ -125,11 +157,44 @@ export class ContextualDataService {
    * Obtiene datos del médico
    */
   private async obtenerDatosMedico(medicoId: number, clinicaAlias: string): Promise<DatosMedico> {
+    console.log(`🔍 Obteniendo datos del médico ${medicoId} para clínica ${clinicaAlias}`);
+    
     const client = await postgresPool.connect();
     try {
+      // Primero verificar si el médico existe
+      const medicoCheck = await client.query(
+        'SELECT id, nombres, apellidos FROM medicos WHERE id = $1',
+        [medicoId]
+      );
+
+      if (medicoCheck.rows.length === 0) {
+        throw new Error(`Médico con ID ${medicoId} no existe en la base de datos`);
+      }
+
+      console.log(`✅ Médico existe:`, medicoCheck.rows[0]);
+
+      // Verificar la relación médico-clínica
+      const relacionCheck = await client.query(
+        `SELECT medico_id, clinica_alias, activo 
+         FROM medicos_clinicas 
+         WHERE medico_id = $1 AND clinica_alias = $2`,
+        [medicoId, clinicaAlias]
+      );
+
+      console.log(`📊 Relación médico-clínica encontrada:`, relacionCheck.rows);
+
+      if (relacionCheck.rows.length === 0) {
+        throw new Error(`Médico con ID ${medicoId} no está asociado a la clínica ${clinicaAlias}`);
+      }
+
+      if (!relacionCheck.rows[0].activo) {
+        throw new Error(`Médico con ID ${medicoId} no está activo en la clínica ${clinicaAlias}`);
+      }
+
+      // Obtener datos completos del médico
       const result = await client.query(
         `SELECT 
-          m.id, m.nombres, m.apellidos, m.email, m.telefono, m.especialidad_id, m.cedula_profesional,
+          m.id, m.nombres, m.apellidos, m.email, m.telefono, m.especialidad_id, m.mpps, m.cm, m.cedula,
           e.nombre_especialidad
         FROM medicos_clinicas mc
         INNER JOIN medicos m ON mc.medico_id = m.id
@@ -142,19 +207,28 @@ export class ContextualDataService {
       );
 
       if (result.rows.length === 0) {
-        throw new Error('Médico no encontrado');
+        throw new Error(`No se pudieron obtener los datos completos del médico ${medicoId} en la clínica ${clinicaAlias}`);
       }
 
       const medico = result.rows[0];
+      console.log(`📊 Datos del médico obtenidos:`, medico);
+      
+      // Usar mpps o cm como cedula_profesional (priorizar mpps)
+      const cedulaProfesional = medico.mpps || medico.cm || medico.cedula || '';
+      
       return {
         id: medico.id,
-        nombres: medico.nombres,
-        apellidos: medico.apellidos,
+        nombres: medico.nombres || '',
+        apellidos: medico.apellidos || '',
         especialidad: medico.nombre_especialidad || 'No especificada',
-        cedula_profesional: medico.cedula_profesional,
-        telefono: medico.telefono,
-        email: medico.email
+        cedula_profesional: cedulaProfesional,
+        telefono: medico.telefono || '',
+        email: medico.email || ''
       };
+    } catch (error: any) {
+      console.error(`❌ Error en obtenerDatosMedico para médico ${medicoId}:`, error);
+      console.error(`❌ Stack trace:`, error.stack);
+      throw error;
     } finally {
       client.release();
     }
@@ -201,6 +275,9 @@ export class ContextualDataService {
         fecha_consulta: data.fecha_consulta,
         fecha_emision: data.fecha_creacion
       };
+    } catch (error: any) {
+      console.error(`❌ Error en obtenerUltimoInforme:`, error);
+      throw error;
     } finally {
       client.release();
     }
@@ -252,6 +329,9 @@ export class ContextualDataService {
 
       console.log(`✅ Historial mapeado:`, historial);
       return historial;
+    } catch (error: any) {
+      console.error(`❌ Error en obtenerHistorialConsultas:`, error);
+      throw error;
     } finally {
       client.release();
     }

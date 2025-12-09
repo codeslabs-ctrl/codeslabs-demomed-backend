@@ -20,7 +20,8 @@ export class InformeMedicoController {
         template_id,
         estado,
         fecha_emision,
-        observaciones
+        observaciones,
+        creado_por
       } = req.body;
 
       const clinicaAlias = req.clinicaAlias;
@@ -29,6 +30,9 @@ export class InformeMedicoController {
         res.status(400).json({ success: false, message: 'CLINICA_ALIAS no está configurada' });
         return;
       }
+
+      // Obtener creado_por del body o del usuario autenticado (medico_id como fallback)
+      const usuarioCreador = creado_por || medico_id || (req as any).user?.userId || medico_id;
 
       const informe = await informeMedicoService.crearInforme({
         titulo,
@@ -40,7 +44,8 @@ export class InformeMedicoController {
         estado: estado || 'borrador',
         fecha_emision: fecha_emision ? new Date(fecha_emision) : new Date(),
         clinica_alias: clinicaAlias,
-        observaciones
+        observaciones,
+        creado_por: usuarioCreador
       });
 
       res.status(201).json({

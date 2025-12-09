@@ -60,7 +60,7 @@ export class InformeMedicoService {
   // INFORMES MÉDICOS
   // =====================================================
 
-  async crearInforme(informe: Omit<InformeMedico, 'id' | 'fecha_creacion' | 'fecha_actualizacion' | 'numero_informe' | 'numero_secuencial' | 'creado_por'>): Promise<InformeMedico> {
+  async crearInforme(informe: Omit<InformeMedico, 'id' | 'fecha_creacion' | 'fecha_actualizacion' | 'numero_informe' | 'numero_secuencial'>): Promise<InformeMedico> {
     const maxIntentos = 3;
     const client = await postgresPool.connect();
     
@@ -78,7 +78,7 @@ export class InformeMedicoService {
           );
 
           if (configResult.rows.length === 0) {
-            throw new Error(`Configuración no encontrada para clínica: ${informe.clinica_alias}`);
+            throw new Error(`Configuración no encontrada para clínica: ${informe.clinica_alias}. Por favor, crea un registro en la tabla configuracion_informes para esta clínica.`);
           }
 
           const config = configResult.rows[0];
@@ -101,8 +101,8 @@ export class InformeMedicoService {
           const insertResult = await client.query(
             `INSERT INTO informes_medicos (
               numero_informe, titulo, tipo_informe, contenido, paciente_id, medico_id, 
-              template_id, estado, fecha_emision, clinica_alias, observaciones, numero_secuencial, creado_por
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+              template_id, estado, fecha_emision, clinica_alias, observaciones, creado_por
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             RETURNING *`,
             [
               numeroInforme,
@@ -116,8 +116,7 @@ export class InformeMedicoService {
               informe.fecha_emision,
               informe.clinica_alias,
               informe.observaciones || null,
-              numeroSecuencial,
-              informe.medico_id
+              informe.creado_por || informe.medico_id
             ]
           );
 
