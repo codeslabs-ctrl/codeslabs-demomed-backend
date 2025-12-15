@@ -20,6 +20,7 @@ import serviciosRoutes from './servicios.js';
 import finanzasRoutes from './finanzas.js';
 import firmasRoutes from './firmas.js';
 import importacionRoutes from './importacion.js';
+import plantillaHistoriaRoutes from './plantilla-historia.js';
 import { ApiResponse } from '../types/index.js';
 import { config } from '../config/environment.js';
 
@@ -52,9 +53,10 @@ router.get('/', (_req: Request, res: Response) => {
             contextualData: '/contextual-data',
                    pdf: '/pdf',
                    servicios: '/servicios',
-                   finanzas: '/finanzas',
-                   firmas: '/firmas',
-                   health: '/health'
+            finanzas: '/finanzas',
+            firmas: '/firmas',
+            plantillasHistorias: '/plantillas-historias',
+            health: '/health'
           },
       documentation: 'https://github.com/your-repo/femimed-backend',
       database: {
@@ -100,5 +102,6 @@ router.use('/servicios', serviciosRoutes);
 router.use('/finanzas', finanzasRoutes);
 router.use('/firmas', firmasRoutes);
 router.use('/importacion', importacionRoutes);
+router.use('/plantillas-historias', plantillaHistoriaRoutes);
 
 export default router;

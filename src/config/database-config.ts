@@ -3,7 +3,7 @@
  * 
  * This system now uses PostgreSQL exclusively.
  * Supabase support has been removed.
- * Generated at: 2025-12-09T16:58:21.100Z
+ * Generated at: 2025-12-15T19:30:48.672Z
  */
 
 // Always use PostgreSQL
