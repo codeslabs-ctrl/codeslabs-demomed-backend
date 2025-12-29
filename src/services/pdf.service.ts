@@ -139,10 +139,11 @@ export class PDFService {
             format: 'A4',
             printBackground: true,
             margin: {
-              top: '20mm',
-              right: '15mm',
-              bottom: '20mm',
-              left: '15mm'
+              // Márgenes más compactos para minimizar páginas extra
+              top: '12mm',
+              right: '12mm',
+              bottom: '12mm',
+              left: '12mm'
             },
             preferCSSPageSize: false
           }),
@@ -254,29 +255,33 @@ export class PDFService {
                  .page {
                    max-width: 210mm;
                    margin: 0 auto;
-                   padding: 2mm 15mm;
+                   /* Evitar doble-espaciado (márgenes PDF + padding HTML) que fuerza páginas extra */
+                   padding: 0;
                    background: white;
                  }
                  
                  .header {
                    text-align: center;
-                   margin-bottom: 5px;
+                   margin-bottom: 4px;
                    border-bottom: none;
-                   padding-bottom: 5px;
+                   padding-bottom: 4px;
+                   break-inside: avoid;
                  }
           
                  .logo {
-                   width: 100px;
-                   height: 100px;
-                   margin: 0 auto 8px;
+                   /* Un poco más grande para mejor legibilidad en PDF */
+                   width: 110px;
+                   height: 110px;
+                   margin: 0 auto 6px;
                    display: block;
                    object-fit: contain;
+                   break-inside: avoid;
                  }
           
           .clinic-info {
             font-size: 9pt;
             color: #666;
-            margin-bottom: 10px;
+            margin-bottom: 8px;
             line-height: 1.3;
           }
           
@@ -293,30 +298,36 @@ export class PDFService {
           }
           
           .content {
-            margin: 15px 0;
+            margin: 10px 0;
             text-align: justify;
           }
           
           .content h2 {
             color: #E91E63;
-            margin: 15px 0 8px 0;
+            margin: 10px 0 6px 0;
             font-size: 12pt;
             font-weight: bold;
             border-bottom: 1px solid #E91E63;
             padding-bottom: 2px;
+            break-after: avoid;
+            break-inside: avoid;
           }
           
           .content h3 {
             color: #333;
-            margin: 12px 0 6px 0;
+            margin: 8px 0 5px 0;
             font-size: 11pt;
             font-weight: bold;
+            break-after: avoid;
+            break-inside: avoid;
           }
           
           .content p {
-            margin-bottom: 8px;
+            margin-bottom: 6px;
             text-indent: 15px;
             line-height: 1.4;
+            orphans: 3;
+            widows: 3;
           }
           
           .patient-data {
@@ -360,14 +371,15 @@ export class PDFService {
           }
           
           .signature-section {
-            margin-top: 40px;
+            margin-top: 22px;
             text-align: center;
+            break-inside: avoid;
           }
           
           .signature-line {
             border-bottom: 1px solid #333;
             width: 150px;
-            margin: 30px auto 5px;
+            margin: 18px auto 5px;
             height: 1px;
           }
           
@@ -394,24 +406,25 @@ export class PDFService {
           
           .date-section {
             text-align: right;
-            margin-top: 20px;
+            margin-top: 12px;
             font-size: 9pt;
             color: #666;
           }
           
           .footer {
-            margin-top: 30px;
+            margin-top: 18px;
             text-align: center;
             font-size: 8pt;
             color: #999;
             border-top: 1px solid #eee;
             padding-top: 8px;
+            break-inside: avoid;
           }
           
           @media print {
             .page {
               margin: 0;
-              padding: 8mm 15mm;
+              padding: 0;
             }
           }
         </style>
@@ -422,7 +435,7 @@ export class PDFService {
             <div class="logo-section">
                      ${clinicaConfig.logo ? 
                        `<img src="${clinicaConfig.logo}" alt="${clinicaConfig.nombre} Logo" class="logo">` :
-                       `<div class="logo-fallback" style="width: 100px; height: 100px; background: ${clinicaConfig.color}; border-radius: 6px; margin: 0 auto 8px; display: flex; align-items: center; justify-content: center; color: white; font-size: 32px; font-weight: bold; box-shadow: 0 1px 4px rgba(0,0,0,0.1);">${clinicaConfig.nombre.charAt(0)}</div>`
+                       `<div class="logo-fallback" style="width: 110px; height: 110px; background: ${clinicaConfig.color}; border-radius: 6px; margin: 0 auto 6px; display: flex; align-items: center; justify-content: center; color: white; font-size: 36px; font-weight: bold; box-shadow: 0 1px 4px rgba(0,0,0,0.1);">${clinicaConfig.nombre.charAt(0)}</div>`
                      }
               <div class="clinic-info">
                 ${clinicaConfig.descripcion}<br>
@@ -546,37 +559,50 @@ export class PDFService {
         return '';
       }
 
-      // Si la ruta es relativa (empieza con ./), resolverla desde el directorio del proyecto
-      // El código compilado está en dist/, así que subimos 2 niveles para llegar a la raíz
-      let logoFile: string;
-      if (logoPath.startsWith('./') || logoPath.startsWith('../')) {
-        // Resolver desde el directorio del proyecto (raíz del backend)
-        const projectRoot = path.join(__dirname, '..', '..');
-        logoFile = path.resolve(projectRoot, logoPath);
-      } else if (path.isAbsolute(logoPath)) {
-        // Si es absoluta, usarla tal cual
-        logoFile = logoPath;
-      } else {
-        // Si es relativa sin ./ o ../, también resolverla desde el proyecto
-        const projectRoot = path.join(__dirname, '..', '..');
-        logoFile = path.resolve(projectRoot, logoPath);
+      // Resolver rutas relativas desde la raíz del backend.
+      // En runtime compilado, __dirname apunta a dist/, por eso subimos 2 niveles.
+      const projectRoot = path.join(__dirname, '..', '..');
+
+      const resolveFromRoot = (p: string): string => {
+        if (path.isAbsolute(p)) return p;
+        return path.resolve(projectRoot, p);
+      };
+
+      // Candidatos (fallback): primero assets/, luego dist/assets/ (útil si en servidor solo existe dist/assets)
+      const candidates: string[] = [];
+
+      const primary = resolveFromRoot(logoPath);
+      candidates.push(primary);
+
+      if (!path.isAbsolute(logoPath)) {
+        // Si el logoPath apunta a ./assets/..., intentar también ./dist/assets/...
+        const normalized = logoPath.replace(/\\/g, '/');
+        if (normalized.startsWith('./assets/')) {
+          candidates.push(resolveFromRoot(normalized.replace('./assets/', './dist/assets/')));
+        } else if (normalized.startsWith('assets/')) {
+          candidates.push(resolveFromRoot(normalized.replace('assets/', 'dist/assets/')));
+        }
       }
-      
-      console.log('🔍 Buscando logo en:', logoFile);
-      
-      if (fs.existsSync(logoFile)) {
-        const logoBuffer = fs.readFileSync(logoFile);
+
+      for (const candidate of candidates) {
+        console.log('🔍 Buscando logo en:', candidate);
+        if (!fs.existsSync(candidate)) continue;
+
+        const logoBuffer = fs.readFileSync(candidate);
         const base64 = logoBuffer.toString('base64');
-        const mimeType = logoPath.endsWith('.svg') ? 'image/svg+xml' : 
-                        logoPath.endsWith('.webp') ? 'image/webp' : 
-                        logoPath.endsWith('.jpg') || logoPath.endsWith('.jpeg') ? 'image/jpeg' :
-                        'image/png';
+        const ext = path.extname(candidate).toLowerCase();
+        const mimeType =
+          ext === '.svg' ? 'image/svg+xml' :
+          ext === '.webp' ? 'image/webp' :
+          ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' :
+          'image/png';
+
         console.log('✅ Logo cargado correctamente, tipo:', mimeType);
         return `data:${mimeType};base64,${base64}`;
-      } else {
-        console.warn('⚠️ Logo no encontrado en:', logoFile);
-        console.warn('⚠️ Continuando sin logo');
       }
+
+      console.warn('⚠️ Logo no encontrado. Se intentó:', candidates);
+      console.warn('⚠️ Continuando sin logo');
     } catch (error: any) {
       console.warn('⚠️ Error leyendo logo (continuando sin logo):', error.message);
     }
@@ -592,15 +618,15 @@ export class PDFService {
     
     const configuraciones: { [key: string]: any } = {
       'femimed': {
-        nombre: process.env['CLINICA_NOMBRE'] || 'DemoMed',
+        nombre: process.env['CLINICA_NOMBRE'] || 'FemiMed',
         descripcion: process.env['CLINICA_DESCRIPCION'] || 'Centro Médico Especializado',
         especialidad: 'Ginecología y Obstetricia',
         color: '#E91E63',
         logoPath: process.env['LOGO_PATH'] || './assets/logos/femimed/logo.svg',
         logo: '' // Se llenará con base64
       },
-      'demomed': {
-        nombre: process.env['CLINICA_NOMBRE'] || 'DemoMed',
+      'FemiMed': {
+        nombre: process.env['CLINICA_NOMBRE'] || 'FemiMed',
         descripcion: process.env['CLINICA_DESCRIPCION'] || 'Centro Médico de Demostración',
         especialidad: 'Medicina General',
         color: '#2196F3',
