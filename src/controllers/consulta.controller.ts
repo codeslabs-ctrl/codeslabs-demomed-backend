@@ -490,6 +490,8 @@ export class ConsultaController {
       const client = await postgresPool.connect();
       try {
         // Construir la query SQL
+        // Nota: relacionamos historico_pacientes usando paciente_id, medico_id y fecha
+        // porque la columna consulta_id puede no existir en todas las bases de datos
         let sqlQuery = `
           SELECT c.*, 
                  p.nombres as paciente_nombre, 
@@ -505,7 +507,11 @@ export class ConsultaController {
           INNER JOIN pacientes p ON c.paciente_id = p.id
           INNER JOIN medicos m ON c.medico_id = m.id
           LEFT JOIN especialidades e ON m.especialidad_id = e.id
-          LEFT JOIN historico_pacientes h ON h.consulta_id = c.id
+          LEFT JOIN historico_pacientes h ON (
+            h.paciente_id = c.paciente_id 
+            AND h.medico_id = c.medico_id 
+            AND h.fecha_consulta = c.fecha_pautada
+          )
           WHERE c.fecha_pautada < $1
             AND c.estado_consulta IN ('agendada', 'reagendada', 'en_progreso')
             AND h.id IS NULL
