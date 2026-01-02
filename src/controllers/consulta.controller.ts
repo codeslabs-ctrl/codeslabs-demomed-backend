@@ -546,21 +546,38 @@ export class ConsultaController {
           success: true,
           data: consultasProcesadas
         } as ApiResponse<typeof consultasProcesadas>);
-      } catch (dbError) {
+      } catch (dbError: any) {
         console.error('❌ PostgreSQL error fetching consultas pendientes:', dbError);
+        console.error('❌ Error details:', {
+          message: dbError?.message,
+          code: dbError?.code,
+          detail: dbError?.detail,
+          hint: dbError?.hint,
+          position: dbError?.position
+        });
         res.status(500).json({
           success: false,
-          error: { message: 'Error al obtener consultas pendientes' }
+          error: { 
+            message: 'Error al obtener consultas pendientes',
+            details: dbError?.message || 'Error desconocido',
+            code: dbError?.code,
+            hint: dbError?.hint
+          }
         } as ApiResponse<null>);
       } finally {
         client.release();
       }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error in getConsultasPendientes:', error);
+      console.error('Error stack:', error?.stack);
       res.status(500).json({
         success: false,
-        error: { message: 'Error interno del servidor' }
+        error: { 
+          message: 'Error interno del servidor',
+          details: error?.message || 'Error desconocido',
+          type: error?.name
+        }
       } as ApiResponse<null>);
     }
   }
