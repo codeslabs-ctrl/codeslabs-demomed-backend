@@ -58,9 +58,10 @@ const startServer = async (): Promise<void> => {
     // Test database connection
     await testConnection();
     
-    app.listen(config.port, () => {
+    app.listen(config.port, '0.0.0.0', () => {
       console.log(`🚀 Server running on port ${config.port}`);
       console.log(`📊 Environment: ${config.nodeEnv}`);
+      console.log(`🌐 Listening on: 0.0.0.0:${config.port}`);
       
       // Mostrar URL apropiada según el entorno
       if (config.nodeEnv === 'production') {
@@ -68,6 +69,7 @@ const startServer = async (): Promise<void> => {
         console.log(`🔗 API Base URL: ${productionUrl}/api/${config.api.version}`);
       } else {
         console.log(`🔗 API Base URL: http://localhost:${config.port}/api/${config.api.version}`);
+        console.log(`🔗 Login endpoint: http://localhost:${config.port}/api/${config.api.version}/auth/login`);
       }
     });
   } catch (error) {
