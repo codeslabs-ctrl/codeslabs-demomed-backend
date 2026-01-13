@@ -48,7 +48,7 @@ export class FinanzasController {
             LEFT JOIN especialidades e ON m.especialidad_id = e.id
             LEFT JOIN servicios_consulta sc ON c.id = sc.consulta_id
             LEFT JOIN servicios s ON sc.servicio_id = s.id
-            WHERE 1=1
+            WHERE c.estado_consulta = 'finalizada'
           `;
           
           const params: any[] = [];
@@ -129,7 +129,7 @@ export class FinanzasController {
               consulta.servicios_consulta.push({
                 id: row.servicio_consulta_id,
                 monto_pagado: row.monto_pagado,
-                moneda_pago: row.moneda_pago,
+                moneda_pago: (row.moneda_pago || 'VES').toUpperCase().trim(),
                 tipo_cambio: row.tipo_cambio,
                 observaciones: row.servicio_observaciones,
                 servicios: {
@@ -153,9 +153,11 @@ export class FinanzasController {
       if (moneda && moneda !== 'TODAS') {
         consultasFiltradas = consultasFiltradas.filter((consulta: any) => {
           // Verificar si la consulta tiene al menos un servicio con la moneda especificada
-          const tieneServicioConMoneda = consulta.servicios_consulta?.some((servicio: any) => 
-            servicio.moneda_pago === moneda
-          );
+          const tieneServicioConMoneda = consulta.servicios_consulta?.some((servicio: any) => {
+            const monedaServicio = (servicio.moneda_pago || '').toUpperCase().trim();
+            const monedaFiltro = moneda.toUpperCase().trim();
+            return monedaServicio === monedaFiltro;
+          });
           return tieneServicioConMoneda;
         });
       }
@@ -168,34 +170,57 @@ export class FinanzasController {
         // Filtrar servicios por moneda si se especifica
         let serviciosFiltrados = consulta.servicios_consulta || [];
         if (moneda && moneda !== 'TODAS') {
-          serviciosFiltrados = serviciosFiltrados.filter((servicio: any) => 
-            servicio.moneda_pago === moneda
-          );
+          serviciosFiltrados = serviciosFiltrados.filter((servicio: any) => {
+            const monedaServicio = (servicio.moneda_pago || '').toUpperCase().trim();
+            const monedaFiltro = moneda.toUpperCase().trim();
+            return monedaServicio === monedaFiltro;
+          });
         }
 
+        // Función auxiliar para parsear valores numéricos
+        const parsearNumero = (valor: any): number => {
+          if (valor === null || valor === undefined) return 0;
+          if (typeof valor === 'number') return valor;
+          if (typeof valor === 'string') {
+            const limpio = valor.trim().replace(/[^\d.,-]/g, '');
+            return parseFloat(limpio.replace(',', '.')) || 0;
+          }
+          return Number(valor) || 0;
+        };
+        
         // Calcular total de la consulta sumando solo los servicios filtrados
         const totalConsulta = serviciosFiltrados.reduce((sum: number, servicio: any) => {
-          return sum + (servicio.monto_pagado || 0);
+          const monto = parsearNumero(servicio.monto_pagado);
+          return sum + monto;
         }, 0);
 
-        // Transformar servicios para el frontend
-        const serviciosTransformados = serviciosFiltrados.map((servicio: any) => ({
-          id: servicio.id,
-          nombre_servicio: (servicio.servicios as any)?.nombre_servicio || '',
-          descripcion: (servicio.servicios as any)?.descripcion || '',
-          precio_unitario: (servicio.servicios as any)?.monto_base || 0,
-          cantidad: 1, // Por defecto 1 servicio
-          subtotal: servicio.monto_pagado,
-          descuento: 0, // Por defecto sin descuento
-          total_servicio: servicio.monto_pagado,
-          moneda_pago: servicio.moneda_pago,
-          tipo_cambio: servicio.tipo_cambio,
-          observaciones: servicio.observaciones
-        }));
+        // Transformar servicios para el frontend (usando la función parsearNumero definida arriba)
+        const serviciosTransformados = serviciosFiltrados.map((servicio: any) => {
+          const montoPagado = parsearNumero(servicio.monto_pagado);
+          const montoBase = parsearNumero((servicio.servicios as any)?.monto_base);
+          
+          return {
+            id: servicio.id,
+            nombre_servicio: (servicio.servicios as any)?.nombre_servicio || '',
+            descripcion: (servicio.servicios as any)?.descripcion || '',
+            precio_unitario: montoBase,
+            cantidad: 1, // Por defecto 1 servicio
+            subtotal: montoPagado,
+            descuento: 0, // Por defecto sin descuento
+            total_servicio: montoPagado,
+            moneda_pago: servicio.moneda_pago || 'VES',
+            tipo_cambio: servicio.tipo_cambio,
+            observaciones: servicio.observaciones
+          };
+        });
 
         // Determinar la moneda principal de los servicios filtrados
-        const monedas = serviciosFiltrados.map((s: any) => s.moneda_pago);
-        const monedaPrincipal = monedas.length > 0 ? monedas[0] : 'COP';
+        // Si no hay servicios, usar VES por defecto
+        const monedas = serviciosFiltrados.map((s: any) => s.moneda_pago).filter(Boolean);
+        const monedaPrincipal = monedas.length > 0 ? monedas[0] : 'VES';
+        
+        // Asegurar que totalConsulta sea un número válido
+        const totalConsultaFinal = isNaN(totalConsulta) ? 0 : totalConsulta;
 
         return {
           id: consulta.id,
@@ -209,8 +234,8 @@ export class FinanzasController {
           hora_consulta: consulta.hora_pautada,
           estado_consulta: consulta.fecha_pago ? 'pagado' : 'pendiente',
           servicios: serviciosTransformados,
-          total_consulta: totalConsulta,
-          moneda_principal: monedaPrincipal,
+          total_consulta: totalConsultaFinal,
+          moneda_principal: monedaPrincipal || 'VES',
           fecha_pago: consulta.fecha_pago,
           metodo_pago: consulta.metodo_pago,
           observaciones_financieras: consulta.observaciones_financieras
@@ -227,7 +252,7 @@ export class FinanzasController {
             SELECT COUNT(DISTINCT c.id)
             FROM consultas_pacientes c
             INNER JOIN pacientes p ON c.paciente_id = p.id
-            WHERE 1=1
+            WHERE c.estado_consulta = 'finalizada'
           `;
           
           const params: any[] = [];
@@ -327,7 +352,7 @@ export class FinanzasController {
           INNER JOIN medicos m ON c.medico_id = m.id
           LEFT JOIN especialidades e ON m.especialidad_id = e.id
           LEFT JOIN servicios_consulta sc ON c.id = sc.consulta_id
-          WHERE 1=1
+          WHERE c.estado_consulta = 'finalizada'
         `;
         
         const params: any[] = [];
@@ -375,7 +400,7 @@ export class FinanzasController {
             const consulta = consultasMap.get(row.id);
             consulta.servicios_consulta.push({
               monto_pagado: row.monto_pagado,
-              moneda_pago: row.moneda_pago
+              moneda_pago: (row.moneda_pago || 'VES').toUpperCase().trim()
             });
           }
         });
@@ -385,11 +410,26 @@ export class FinanzasController {
         client.release();
       }
 
+      // Función auxiliar para parsear valores numéricos
+      const parsearNumero = (valor: any): number => {
+        if (valor === null || valor === undefined) return 0;
+        if (typeof valor === 'number') return valor;
+        if (typeof valor === 'string') {
+          const limpio = valor.trim().replace(/[^\d.,-]/g, '');
+          return parseFloat(limpio.replace(',', '.')) || 0;
+        }
+        return Number(valor) || 0;
+      };
+
       // Aplicar filtro de moneda post-query
       let consultasFiltradas = consultas || [];
       if (moneda && moneda !== 'TODAS') {
+        const monedaFiltro = moneda.toUpperCase().trim();
         consultasFiltradas = consultas?.filter((consulta: any) => 
-          consulta.servicios_consulta?.some((servicio: any) => servicio.moneda_pago === moneda)
+          consulta.servicios_consulta?.some((servicio: any) => {
+            const monedaServicio = (servicio.moneda_pago || '').toUpperCase().trim();
+            return monedaServicio === monedaFiltro;
+          })
         ) || [];
       }
 
@@ -400,10 +440,15 @@ export class FinanzasController {
       const totalIngresos = consultasFiltradas.reduce((sum: number, consulta: any) => {
         const totalConsulta = consulta.servicios_consulta?.reduce((servicioSum: number, servicio: any) => {
           // Solo sumar servicios de la moneda seleccionada
-          if (moneda && moneda !== 'TODAS' && servicio.moneda_pago !== moneda) {
-            return servicioSum;
+          if (moneda && moneda !== 'TODAS') {
+            const monedaServicio = (servicio.moneda_pago || '').toUpperCase().trim();
+            const monedaFiltro = moneda.toUpperCase().trim();
+            if (monedaServicio !== monedaFiltro) {
+              return servicioSum;
+            }
           }
-          return servicioSum + (servicio.monto_pagado || 0);
+          const monto = parsearNumero(servicio.monto_pagado);
+          return servicioSum + monto;
         }, 0) || 0;
         return sum + totalConsulta;
       }, 0);
@@ -417,10 +462,15 @@ export class FinanzasController {
         const especialidad = (consulta.medico as any)?.especialidades?.nombre_especialidad || 'Sin especialidad';
         const totalConsulta = consulta.servicios_consulta?.reduce((sum: number, servicio: any) => {
           // Solo sumar servicios de la moneda seleccionada
-          if (moneda && moneda !== 'TODAS' && servicio.moneda_pago !== moneda) {
-            return sum;
+          if (moneda && moneda !== 'TODAS') {
+            const monedaServicio = (servicio.moneda_pago || '').toUpperCase().trim();
+            const monedaFiltro = moneda.toUpperCase().trim();
+            if (monedaServicio !== monedaFiltro) {
+              return sum;
+            }
           }
-          return sum + (servicio.monto_pagado || 0);
+          const monto = parsearNumero(servicio.monto_pagado);
+          return sum + monto;
         }, 0) || 0;
         totalPorEspecialidad[especialidad] = (totalPorEspecialidad[especialidad] || 0) + totalConsulta;
       });
@@ -431,10 +481,15 @@ export class FinanzasController {
         const medico = `${(consulta.medico as any)?.nombres || ''} ${(consulta.medico as any)?.apellidos || ''}`.trim() || 'Sin médico';
         const totalConsulta = consulta.servicios_consulta?.reduce((sum: number, servicio: any) => {
           // Solo sumar servicios de la moneda seleccionada
-          if (moneda && moneda !== 'TODAS' && servicio.moneda_pago !== moneda) {
-            return sum;
+          if (moneda && moneda !== 'TODAS') {
+            const monedaServicio = (servicio.moneda_pago || '').toUpperCase().trim();
+            const monedaFiltro = moneda.toUpperCase().trim();
+            if (monedaServicio !== monedaFiltro) {
+              return sum;
+            }
           }
-          return sum + (servicio.monto_pagado || 0);
+          const monto = parsearNumero(servicio.monto_pagado);
+          return sum + monto;
         }, 0) || 0;
         totalPorMedico[medico] = (totalPorMedico[medico] || 0) + totalConsulta;
       });
@@ -442,18 +497,27 @@ export class FinanzasController {
       // Calcular estadísticas por moneda
       const estadisticasPorMoneda: { [key: string]: any } = {};
       const monedas = [...new Set(consultas?.flatMap((c: any) => 
-        c.servicios_consulta?.map((s: any) => s.moneda_pago).filter(Boolean) || []
+        c.servicios_consulta?.map((s: any) => (s.moneda_pago || 'VES').toUpperCase().trim()).filter(Boolean) || []
       ) || [])];
 
       monedas.forEach(monedaItem => {
+        const monedaItemNormalizada = monedaItem.toUpperCase().trim();
         const consultasMoneda = consultas?.filter((consulta: any) => 
-          consulta.servicios_consulta?.some((servicio: any) => servicio.moneda_pago === monedaItem)
+          consulta.servicios_consulta?.some((servicio: any) => {
+            const monedaServicio = (servicio.moneda_pago || 'VES').toUpperCase().trim();
+            return monedaServicio === monedaItemNormalizada;
+          })
         ) || [];
 
         const totalConsultasMoneda = consultasMoneda.length;
         const totalIngresosMoneda = consultasMoneda.reduce((sum: number, consulta: any) => {
           const totalConsulta = consulta.servicios_consulta?.reduce((servicioSum: number, servicio: any) => {
-            return servicioSum + (servicio.moneda_pago === monedaItem ? (servicio.monto_pagado || 0) : 0);
+            const monedaServicio = (servicio.moneda_pago || 'VES').toUpperCase().trim();
+            if (monedaServicio === monedaItemNormalizada) {
+              const monto = parsearNumero(servicio.monto_pagado);
+              return servicioSum + monto;
+            }
+            return servicioSum;
           }, 0) || 0;
           return sum + totalConsulta;
         }, 0);
@@ -592,7 +656,7 @@ export class FinanzasController {
           LEFT JOIN especialidades e ON m.especialidad_id = e.id
           LEFT JOIN servicios_consulta sc ON c.id = sc.consulta_id
           LEFT JOIN servicios s ON sc.servicio_id = s.id
-          WHERE 1=1
+          WHERE c.estado_consulta = 'finalizada'
         `;
         
         const params: any[] = [];
@@ -832,7 +896,7 @@ export class FinanzasController {
           LEFT JOIN especialidades e ON m.especialidad_id = e.id
           LEFT JOIN servicios_consulta sc ON c.id = sc.consulta_id
           LEFT JOIN servicios s ON sc.servicio_id = s.id
-          WHERE 1=1
+          WHERE c.estado_consulta = 'finalizada'
         `;
         
         const params: any[] = [];
