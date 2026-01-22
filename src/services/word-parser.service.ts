@@ -21,7 +21,7 @@ export interface ParsedHistoriaData {
   antecedentes_otros?: string;
   examen_fisico?: string;
   ultrasonido?: string;
-  examenes_medico?: string; // Exámenes médicos consolidados
+  examenes_medico?: string; // Exámenes físicos consolidados (campo de BD)
   diagnostico?: string;
   conclusiones?: string;
   plan?: string;
@@ -330,15 +330,19 @@ export class WordParserService {
       console.log(`[WordParser] Todos los antecedentes consolidados en antecedentes_otros (${antecedentesSections.length} secciones)`);
     }
 
-    // EXTRAER EXÁMENES MÉDICOS (Examen Físico, Ultrasonido, etc.)
-    const examenesMedicos: string[] = [];
+    // EXTRAER EXÁMENES FÍSICOS (Examen Físico, Ultrasonido, etc.)
+    const examenesFisicos: string[] = [];
     
-    // Extraer examen físico
-    const examenFisicoMatch = fullText.match(/EXAMEN\s+FISICO\s*:?\s*([^\n]+(?:\n(?!ANTECEDENTES|EXAMEN|CONCLUSIONES|PLAN|DIAGNÓSTICO|DIAGNOSTICO|Ultrasonido|DIAGNOSTICO)[^\n]+)*)/i);
+    // Extraer examen físico - capturar todo el contenido hasta la siguiente sección importante
+    // Buscar desde "EXAMEN FISICO" hasta "DIAGNÓSTICO", "CONCLUSIONES", "PLAN", o fin del texto
+    const examenFisicoMatch = fullText.match(/EXAMEN\s+FISICO\s*:?\s*([\s\S]*?)(?=\s*(?:DIAGNÓSTICO|DIAGNOSTICO|CONCLUSIONES|PLAN|ANTECEDENTES|EXAMEN\s+(?!FISICO))|$)/i);
     if (examenFisicoMatch && examenFisicoMatch[1]) {
       const examenFisico = examenFisicoMatch[1].trim();
-      historia.examen_fisico = examenFisico;
-      examenesMedicos.push(`Examen Físico: ${examenFisico}`);
+      if (examenFisico) {
+        historia.examen_fisico = examenFisico;
+        examenesFisicos.push(examenFisico);
+        console.log(`[WordParser] Examen Físico extraído: "${examenFisico.substring(0, 100)}..."`);
+      }
     }
 
     // Extraer ultrasonido
@@ -346,13 +350,13 @@ export class WordParserService {
     if (ultrasonidoMatch) {
       const ultrasonido = ultrasonidoMatch[0].trim();
       historia.ultrasonido = ultrasonido;
-      examenesMedicos.push(ultrasonido);
+      examenesFisicos.push(ultrasonido);
     }
 
-    // Consolidar todos los exámenes médicos en examenes_medico
-    if (examenesMedicos.length > 0) {
-      historia.examenes_medico = examenesMedicos.join('\n\n');
-      console.log(`[WordParser] Exámenes médicos consolidados (${examenesMedicos.length} secciones)`);
+    // Consolidar todos los exámenes físicos en examenes_medico (campo de BD)
+    if (examenesFisicos.length > 0) {
+      historia.examenes_medico = examenesFisicos.join('\n\n');
+      console.log(`[WordParser] Exámenes físicos consolidados (${examenesFisicos.length} secciones)`);
     }
 
     // EXTRAER DIAGNÓSTICO (solo la sección DIAGNÓSTICO, no los exámenes)

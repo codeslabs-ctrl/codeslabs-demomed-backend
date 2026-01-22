@@ -7,6 +7,9 @@ export class ConsultaController {
   // Obtener todas las consultas con filtros
   static async getConsultas(req: Request, res: Response): Promise<void> {
     try {
+      // Obtener información del usuario autenticado
+      const user = (req as any).user;
+      
       const {
         paciente_id,
         medico_id,
@@ -29,15 +32,27 @@ export class ConsultaController {
         const params: any[] = [];
         let paramIndex = 1;
 
+        // Si el usuario es médico, solo puede ver sus propias consultas
+        // Si es administrador o secretaria, puede ver todas o filtrar por medico_id si lo especifica
+        let medicoIdFiltro: number | undefined;
+        if (user?.rol === 'medico' && user?.medico_id) {
+          // Médico solo ve sus propias consultas
+          medicoIdFiltro = user.medico_id;
+        } else if (medico_id) {
+          // Administrador o secretaria puede filtrar por medico_id si lo especifica en query
+          medicoIdFiltro = parseInt(medico_id as string);
+        }
+        // Si no es médico y no hay medico_id en query, no se filtra (ve todas)
+
         // Construir filtros
         if (paciente_id) {
           sql += ` AND paciente_id = $${paramIndex}`;
           params.push(paciente_id);
           paramIndex++;
         }
-        if (medico_id) {
+        if (medicoIdFiltro) {
           sql += ` AND medico_id = $${paramIndex}`;
-          params.push(medico_id);
+          params.push(medicoIdFiltro);
           paramIndex++;
         }
         if (estado_consulta) {
@@ -88,6 +103,17 @@ export class ConsultaController {
 
         const result = await client.query(sql, params);
         const consultas = result.rows;
+
+        // Log para depuración: verificar datos del paciente
+        if (consultas.length > 0) {
+          console.log('🔍 Primera consulta desde vista:', {
+            id: consultas[0].id,
+            paciente_id: consultas[0].paciente_id,
+            paciente_nombre: consultas[0].paciente_nombre,
+            paciente_apellidos: consultas[0].paciente_apellidos,
+            paciente_cedula: consultas[0].paciente_cedula
+          });
+        }
 
         res.json({
           success: true,

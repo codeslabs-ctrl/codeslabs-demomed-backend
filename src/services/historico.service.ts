@@ -11,7 +11,7 @@ export interface HistoricoData {
   plan?: string;
   antecedentes_personales?: string;
   antecedentes_familiares?: string;
-  antecedentes_quirurgicos?: string;
+  examenes_paraclinicos?: string;
   antecedentes_otros?: string;
   fecha_consulta: string;
   fecha_creacion: string;
@@ -47,7 +47,7 @@ export class HistoricoService {
           h.plan,
           h.antecedentes_personales,
           h.antecedentes_familiares,
-          h.antecedentes_quirurgicos,
+          h.examenes_paraclinicos,
           h.antecedentes_otros,
           h.fecha_consulta,
           h.fecha_creacion,
@@ -82,7 +82,7 @@ export class HistoricoService {
         plan: row.plan,
         antecedentes_personales: row.antecedentes_personales,
         antecedentes_familiares: row.antecedentes_familiares,
-        antecedentes_quirurgicos: row.antecedentes_quirurgicos,
+        examenes_paraclinicos: row.examenes_paraclinicos,
         antecedentes_otros: row.antecedentes_otros,
         fecha_consulta: row.fecha_consulta,
         fecha_creacion: row.fecha_creacion,
@@ -120,7 +120,7 @@ export class HistoricoService {
             h.plan,
             h.antecedentes_personales,
             h.antecedentes_familiares,
-            h.antecedentes_quirurgicos,
+            h.examenes_paraclinicos,
             h.antecedentes_otros,
             h.fecha_consulta,
             h.fecha_creacion,
@@ -152,7 +152,7 @@ export class HistoricoService {
           plan: row.plan,
           antecedentes_personales: row.antecedentes_personales,
           antecedentes_familiares: row.antecedentes_familiares,
-          antecedentes_quirurgicos: row.antecedentes_quirurgicos,
+          examenes_paraclinicos: row.examenes_paraclinicos,
           antecedentes_otros: row.antecedentes_otros,
           fecha_consulta: row.fecha_consulta,
           fecha_creacion: row.fecha_creacion,
@@ -197,7 +197,7 @@ export class HistoricoService {
             h.plan,
             h.antecedentes_personales,
             h.antecedentes_familiares,
-            h.antecedentes_quirurgicos,
+            h.examenes_paraclinicos,
             h.antecedentes_otros,
             h.fecha_consulta,
             h.fecha_creacion,
@@ -229,7 +229,7 @@ export class HistoricoService {
           plan: row.plan,
           antecedentes_personales: row.antecedentes_personales,
           antecedentes_familiares: row.antecedentes_familiares,
-          antecedentes_quirurgicos: row.antecedentes_quirurgicos,
+          examenes_paraclinicos: row.examenes_paraclinicos,
           antecedentes_otros: row.antecedentes_otros,
           fecha_consulta: row.fecha_consulta,
           fecha_creacion: row.fecha_creacion,
@@ -269,7 +269,7 @@ export class HistoricoService {
             h.plan,
             h.antecedentes_personales,
             h.antecedentes_familiares,
-            h.antecedentes_quirurgicos,
+            h.examenes_paraclinicos,
             h.antecedentes_otros,
             h.fecha_consulta,
             h.fecha_creacion,
@@ -300,7 +300,7 @@ export class HistoricoService {
           plan: row.plan,
           antecedentes_personales: row.antecedentes_personales,
           antecedentes_familiares: row.antecedentes_familiares,
-          antecedentes_quirurgicos: row.antecedentes_quirurgicos,
+          examenes_paraclinicos: row.examenes_paraclinicos,
           antecedentes_otros: row.antecedentes_otros,
           fecha_consulta: row.fecha_consulta,
           fecha_creacion: row.fecha_creacion,
@@ -340,7 +340,7 @@ export class HistoricoService {
             h.plan,
             h.antecedentes_personales,
             h.antecedentes_familiares,
-            h.antecedentes_quirurgicos,
+            h.examenes_paraclinicos,
             h.antecedentes_otros,
             h.fecha_consulta,
             h.fecha_creacion,
@@ -387,7 +387,7 @@ export class HistoricoService {
           plan: row.plan,
           antecedentes_personales: row.antecedentes_personales,
           antecedentes_familiares: row.antecedentes_familiares,
-          antecedentes_quirurgicos: row.antecedentes_quirurgicos,
+          examenes_paraclinicos: row.examenes_paraclinicos,
           antecedentes_otros: row.antecedentes_otros,
           fecha_consulta: row.fecha_consulta,
           fecha_creacion: row.fecha_creacion,
@@ -539,7 +539,7 @@ export class HistoricoService {
             SELECT 
               h.id, h.paciente_id, h.medico_id, h.motivo_consulta, h.examenes_medico, h.diagnostico, 
               h.conclusiones, h.plan, h.antecedentes_personales, h.antecedentes_familiares,
-              h.antecedentes_quirurgicos, h.antecedentes_otros, h.fecha_consulta, h.fecha_creacion, 
+              h.examenes_paraclinicos, h.antecedentes_otros, h.fecha_consulta, h.fecha_creacion, 
               h.fecha_actualizacion, h.ruta_archivo, h.nombre_archivo,
               p.nombres as paciente_nombre, p.apellidos as paciente_apellidos,
               m.nombres as medico_nombre, m.apellidos as medico_apellidos,
@@ -575,7 +575,7 @@ export class HistoricoService {
             plan: historia.plan,
             antecedentes_personales: historia.antecedentes_personales,
             antecedentes_familiares: historia.antecedentes_familiares,
-            antecedentes_quirurgicos: historia.antecedentes_quirurgicos,
+            examenes_paraclinicos: historia.examenes_paraclinicos,
             antecedentes_otros: historia.antecedentes_otros,
             fecha_consulta: historia.fecha_consulta,
             fecha_creacion: historia.fecha_creacion,
@@ -608,7 +608,7 @@ export class HistoricoService {
       console.log('🔍 updateHistorico - updateData:', updateData);
 
       // Filtrar solo los campos que existen en la tabla historico_medico
-      const allowedFields = ['motivo_consulta', 'examenes_medico', 'diagnostico', 'conclusiones', 'plan', 'antecedentes_personales', 'antecedentes_familiares', 'antecedentes_quirurgicos', 'antecedentes_otros'];
+      const allowedFields = ['motivo_consulta', 'examenes_medico', 'diagnostico', 'conclusiones', 'plan', 'antecedentes_personales', 'antecedentes_familiares', 'examenes_paraclinicos', 'antecedentes_otros'];
       const filteredData: any = {};
       
       for (const [key, value] of Object.entries(updateData)) {
@@ -646,7 +646,7 @@ export class HistoricoService {
           if (updateFields.length === 0) {
             console.error('❌ updateHistorico - No hay campos para actualizar');
             console.error('❌ updateHistorico - filteredData:', filteredData);
-            throw new Error('No hay campos para actualizar. Debe proporcionar al menos uno de los siguientes campos: motivo_consulta, diagnostico, conclusiones, plan, antecedentes_personales, antecedentes_familiares, antecedentes_quirurgicos, antecedentes_otros');
+            throw new Error('No hay campos para actualizar. Debe proporcionar al menos uno de los siguientes campos: motivo_consulta, diagnostico, conclusiones, plan, antecedentes_personales, antecedentes_familiares, examenes_paraclinicos, antecedentes_otros');
           }
           
           console.log('🔍 updateHistorico - updateFields:', updateFields);
@@ -692,7 +692,7 @@ export class HistoricoService {
             SELECT 
               h.id, h.paciente_id, h.medico_id, h.motivo_consulta, h.examenes_medico, h.diagnostico, 
               h.conclusiones, h.plan, h.antecedentes_personales, h.antecedentes_familiares,
-              h.antecedentes_quirurgicos, h.antecedentes_otros, h.fecha_consulta, h.fecha_creacion, 
+              h.examenes_paraclinicos, h.antecedentes_otros, h.fecha_consulta, h.fecha_creacion, 
               h.fecha_actualizacion, h.ruta_archivo, h.nombre_archivo,
               p.nombres as paciente_nombre, p.apellidos as paciente_apellidos,
               m.nombres as medico_nombre, m.apellidos as medico_apellidos,
@@ -953,7 +953,7 @@ export class HistoricoService {
             INSERT INTO historico_pacientes (
               paciente_id, medico_id, motivo_consulta, examenes_medico, diagnostico, 
               conclusiones, plan, antecedentes_personales, antecedentes_familiares,
-              antecedentes_quirurgicos, antecedentes_otros, fecha_consulta
+              examenes_paraclinicos, antecedentes_otros, fecha_consulta
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             RETURNING *
           `;
@@ -970,7 +970,7 @@ export class HistoricoService {
             historicoData.plan || null,
             historicoData.antecedentes_personales || null,
             historicoData.antecedentes_familiares || null,
-            historicoData.antecedentes_quirurgicos || null,
+            (historicoData as any).examenes_paraclinicos || null,
             historicoData.antecedentes_otros || null,
             fechaConsulta
           ]);

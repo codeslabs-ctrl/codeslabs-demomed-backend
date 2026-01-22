@@ -45,6 +45,12 @@ export class AuthRecoveryController {
       // Generar OTP (8 dígitos)
       const otp = Math.floor(10000000 + Math.random() * 90000000).toString();
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutos
+      
+      console.log('🔐 OTP generado para recuperación de contraseña:');
+      console.log('  - Email:', email);
+      console.log('  - Usuario ID:', usuario.id);
+      console.log('  - OTP:', otp);
+      console.log('  - Expira en:', expiresAt.toISOString());
 
       // Guardar OTP en la base de datos (PostgreSQL)
       const otpClient = await postgresPool.connect();

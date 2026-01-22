@@ -30,14 +30,39 @@ export class EmailService {
   private transporter: nodemailer.Transporter;
 
   constructor() {
-    // Configuración del transporter
-    this.transporter = nodemailer.createTransport({
-      service: config.email.service,
+    // Configuración del transporter basada en variables de entorno
+    const transporterConfig: any = {
       auth: {
         user: config.email.user,
         pass: config.email.password
       }
-    });
+    };
+
+    // Si hay host configurado, usar configuración manual
+    if (config.email.host) {
+      transporterConfig.host = config.email.host;
+      transporterConfig.port = config.email.port || 587;
+      transporterConfig.secure = config.email.secure;
+      transporterConfig.tls = {
+        rejectUnauthorized: false
+      };
+    } else {
+      // Usar configuración por servicio (gmail, outlook, etc.)
+      transporterConfig.service = config.email.service;
+    }
+
+    this.transporter = nodemailer.createTransport(transporterConfig);
+    
+    // Verificar la conexión al crear el transporter (solo en desarrollo)
+    if (config.nodeEnv === 'development') {
+      this.transporter.verify((error) => {
+        if (error) {
+          console.error('❌ Error verificando configuración de email:', error);
+        } else {
+          console.log('✅ Configuración de email verificada correctamente');
+        }
+      });
+    }
   }
 
   /**
@@ -48,12 +73,52 @@ export class EmailService {
       console.log('📧 EmailService - Configuración:');
       console.log('  - Service:', config.email.service);
       console.log('  - User:', config.email.user);
-      console.log('  - From:', config.email.from);
+      console.log('  - From (original):', config.email.from);
       console.log('  - To:', options.to);
       console.log('  - Subject:', options.subject);
       
+      // Procesar el campo "from" según el servicio de email
+      let fromEmail = config.email.from;
+      
+      // Para Gmail/Google Workspace, mantener el formato completo "Nombre <email>" para mostrar el alias
+      if (config.email.service === 'gmail') {
+        // Verificar que el email en el formato "Nombre <email>" coincida con el usuario autenticado
+        const emailMatch = config.email.from.match(/<(.+)>/);
+        if (emailMatch && emailMatch[1]) {
+          // El email debe coincidir con el usuario autenticado, pero mantenemos el formato completo con el nombre
+          const emailInFrom = emailMatch[1];
+          if (emailInFrom === config.email.user) {
+            // Mantener el formato completo "Nombre <email>" para mostrar el alias
+            fromEmail = config.email.from;
+          } else {
+            // Si no coincide, usar solo el email del usuario autenticado
+            fromEmail = config.email.user || emailInFrom;
+          }
+        } else if (!config.email.from.includes('@')) {
+          // Si no tiene formato correcto, usar el user directamente
+          fromEmail = config.email.user || config.email.from;
+        } else {
+          // Si ya tiene formato correcto, mantenerlo
+          fromEmail = config.email.from;
+        }
+        console.log('  - From (procesado para Gmail):', fromEmail);
+      } else if (config.email.host) {
+        // Para SendGrid u otros SMTP personalizados, mantener el formato "Nombre <email>"
+        // pero asegurarse de que el email esté presente
+        const emailMatch = config.email.from.match(/<(.+)>/);
+        if (emailMatch && emailMatch[1]) {
+          // Ya tiene formato correcto, mantenerlo
+          fromEmail = config.email.from;
+        } else if (!config.email.from.includes('@')) {
+          // Si no tiene formato correcto, intentar construir uno
+          console.warn('⚠️ Campo EMAIL_FROM no tiene formato correcto para SendGrid. Debe ser: "Nombre <email@dominio.com>"');
+          fromEmail = config.email.from;
+        }
+        console.log('  - From (procesado para SMTP personalizado):', fromEmail);
+      }
+      
       const mailOptions = {
-        from: config.email.from,
+        from: fromEmail,
         to: Array.isArray(options.to) ? options.to.join(', ') : options.to,
         subject: options.subject,
         html: options.html,
@@ -68,8 +133,18 @@ export class EmailService {
       const result = await this.transporter.sendMail(mailOptions);
       console.log('✅ Email enviado exitosamente:', result.messageId);
       return true;
-    } catch (error) {
-      console.error('❌ Error enviando email:', error);
+    } catch (error: any) {
+      console.error('❌ Error enviando email:');
+      console.error('  - Mensaje:', error?.message);
+      console.error('  - Código:', error?.code);
+      console.error('  - Response:', error?.response);
+      console.error('  - Stack:', error?.stack);
+      if (error?.responseCode) {
+        console.error('  - Response Code:', error.responseCode);
+      }
+      if (error?.command) {
+        console.error('  - Command:', error.command);
+      }
       return false;
     }
   }
@@ -116,8 +191,10 @@ export class EmailService {
 
       console.log('📧 sendTemplateEmail - Resultado:', result);
       return result;
-    } catch (error) {
-      console.error('❌ Error procesando template de email:', error);
+    } catch (error: any) {
+      console.error('❌ Error procesando template de email:');
+      console.error('  - Mensaje:', error?.message);
+      console.error('  - Stack:', error?.stack);
       return false;
     }
   }
