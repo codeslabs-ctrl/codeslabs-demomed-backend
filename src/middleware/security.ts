@@ -14,14 +14,19 @@ declare global {
 }
 
 // Headers de seguridad
-export const securityHeaders = helmet();
+// Deshabilitar CORP en Helmet - lo manejamos manualmente en el middleware de archivos estáticos
+export const securityHeaders = helmet({
+  crossOriginResourcePolicy: false,
+  crossOriginEmbedderPolicy: false
+});
 
 // CORS configurado para DemoMed
 const allowedOrigins = [
   process.env['FRONTEND_URL'] || 'http://localhost:4200',
   'https://demomed.codes-labs.com',
   'https://www.demomed.codes-labs.com',
-  'http://localhost:4200' // Desarrollo
+  'http://localhost:4200', // Desarrollo Angular por defecto
+  'http://localhost:3000'  // Desarrollo frontend alternativo
 ].filter(Boolean); // Elimina valores undefined/null
 
 export const corsMiddleware = cors({

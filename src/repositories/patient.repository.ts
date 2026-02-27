@@ -19,6 +19,7 @@ export interface PatientData {
   medicamentos?: string;
   alergias?: string;
   observaciones?: string;
+  antecedentes_otros?: string;
   fecha_creacion?: string;
   fecha_actualizacion?: string;
 }
@@ -67,6 +68,34 @@ export class PatientRepository extends PostgresRepository<PatientData> {
       [sexo]
     );
     return result.rows;
+  }
+
+  /**
+   * Busca pacientes cuyo historial contenga el texto en:
+   * - historico_pacientes: diagnostico, motivo_consulta, plan, examenes_medico, examenes_paraclinicos
+   * - antecedente_paciente: detalle (antecedentes estandarizados + pacientes.antecedentes_otros)
+   */
+  async searchByPatologia(q: string, medicoId: number | null): Promise<PatientData[]> {
+    const searchTerm = '%' + q.replace(/%/g, '\\%').replace(/_/g, '\\_') + '%';
+    const result = await this.query(
+      `SELECT DISTINCT p.*
+       FROM pacientes p
+       INNER JOIN historico_pacientes h ON h.paciente_id = p.id
+       LEFT JOIN antecedente_paciente ap ON ap.paciente_id = p.id
+       WHERE (
+         (h.diagnostico IS NOT NULL AND h.diagnostico ILIKE $1)
+         OR (h.motivo_consulta IS NOT NULL AND h.motivo_consulta ILIKE $1)
+         OR (p.antecedentes_otros IS NOT NULL AND TRIM(p.antecedentes_otros) <> '' AND p.antecedentes_otros ILIKE $1)
+         OR (h.plan IS NOT NULL AND h.plan ILIKE $1)
+         OR (h.examenes_medico IS NOT NULL AND h.examenes_medico ILIKE $1)
+         OR (h.examenes_paraclinicos IS NOT NULL AND h.examenes_paraclinicos ILIKE $1)
+         OR (ap.detalle IS NOT NULL AND TRIM(ap.detalle) <> '' AND ap.detalle ILIKE $1)
+       )
+       AND ($2::int IS NULL OR h.medico_id = $2)
+       ORDER BY p.apellidos, p.nombres`,
+      [searchTerm, medicoId]
+    );
+    return result.rows as PatientData[];
   }
 
   // Sobrescribir findAll para manejar correctamente los filtros de edad

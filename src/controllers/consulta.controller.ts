@@ -165,6 +165,7 @@ export class ConsultaController {
             m.id as medico_id,
             m.nombres as medico_nombres,
             m.apellidos as medico_apellidos,
+            m.sexo as medico_sexo,
               e.id as especialidad_id,
               e.nombre_especialidad as especialidad_nombre,
               e.descripcion as especialidad_descripcion
@@ -207,6 +208,7 @@ export class ConsultaController {
             },
             paciente_nombre: `${row.paciente_nombres} ${row.paciente_apellidos}`,
             medico_nombre: `${row.medico_nombres} ${row.medico_apellidos}`,
+            medico_sexo: row.medico_sexo || null,
             especialidad_id: row.especialidad_id || null,
             especialidad_nombre: row.especialidad_nombre || 'Sin especialidad'
           };

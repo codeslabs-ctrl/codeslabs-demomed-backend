@@ -322,6 +322,17 @@ export class PatientService {
     }
   }
 
+  async searchPatientsByPatologia(q: string, medicoId: number | null): Promise<PatientData[]> {
+    try {
+      if (!q || q.trim().length === 0) {
+        throw new Error('El término de búsqueda por patología no puede estar vacío');
+      }
+      return await this.patientRepository.searchByPatologia(q.trim(), medicoId);
+    } catch (error) {
+      throw new Error(`Failed to search patients by patologia: ${(error as Error).message}`);
+    }
+  }
+
   async getPatientsByAgeRange(minAge: number, maxAge: number): Promise<PatientData[]> {
     try {
       if (minAge < 0 || maxAge < 0 || minAge > maxAge) {

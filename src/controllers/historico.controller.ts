@@ -377,4 +377,37 @@ export class HistoricoController {
       res.status(400).json(response);
     }
   }
+
+  async getAntecedentesByHistoricoId(req: Request<{ id: string }>, res: Response<ApiResponse>): Promise<void> {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        res.status(400).json({ success: false, error: { message: 'ID de historial inválido.' } });
+        return;
+      }
+      const data = await this.historicoService.getAntecedentesByHistoricoId(id);
+      res.json({ success: true, data });
+    } catch (error) {
+      res.status(500).json({ success: false, error: { message: (error as Error).message } });
+    }
+  }
+
+  async saveAntecedentesBulk(req: Request<{ id: string }>, res: Response<ApiResponse>): Promise<void> {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        res.status(400).json({ success: false, error: { message: 'ID de historial inválido.' } });
+        return;
+      }
+      const body = req.body as {
+        antecedentes?: { antecedente_tipo_id: number; presente: boolean; detalle?: string | null }[];
+        antecedentes_otros?: string | null;
+      };
+      const items = Array.isArray(body?.antecedentes) ? body.antecedentes : [];
+      const data = await this.historicoService.saveAntecedentesBulk(id, items, body?.antecedentes_otros);
+      res.json({ success: true, data });
+    } catch (error) {
+      res.status(500).json({ success: false, error: { message: (error as Error).message } });
+    }
+  }
 }
