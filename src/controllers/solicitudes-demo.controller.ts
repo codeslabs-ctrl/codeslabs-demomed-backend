@@ -99,13 +99,11 @@ export class SolicitudesDemoController {
         const otp = Math.floor(10000000 + Math.random() * 90000000).toString();
         const hashedOtp = await bcrypt.hash(otp, 10);
 
-        const usuarioResult = await client.query(
+        await client.query(
           `INSERT INTO usuarios (username, email, password_hash, rol, medico_id, activo, verificado, first_login, password_changed_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-           RETURNING *`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
           [username, emailTrim, hashedOtp, 'medico', medicoId, true, false, true, null]
         );
-        const newUser = usuarioResult.rows[0];
 
         // Registrar en solicitudes_demo para trazabilidad (estado completado)
         await client.query(
