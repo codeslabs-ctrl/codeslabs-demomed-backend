@@ -241,11 +241,14 @@ export class PatientController {
       };
       res.json(response);
     } catch (error) {
+      const err = error as Error;
+      console.error('❌ updatePatient error:', err.message, err.stack);
       const response: ApiResponse = {
         success: false,
-        error: { message: (error as Error).message }
+        error: { message: err.message }
       };
-      res.status(400).json(response);
+      const status = err.message.includes('Record not found') ? 404 : 500;
+      res.status(status).json(response);
     }
   }
 

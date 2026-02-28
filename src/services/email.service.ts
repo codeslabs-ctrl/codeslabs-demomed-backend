@@ -213,6 +213,7 @@ export class EmailService {
       motivo: string;
       tipo: string;
       duracion: number;
+      observaciones?: string;
     }
   ): Promise<{ paciente: boolean; medico: boolean }> {
     const results = { paciente: false, medico: false };
@@ -251,6 +252,7 @@ export class EmailService {
       horaNueva: string;
       motivo: string;
       tipo: string;
+      observaciones?: string;
     }
   ): Promise<{ paciente: boolean; medico: boolean }> {
     const results = { paciente: false, medico: false };
@@ -498,6 +500,7 @@ export class EmailService {
                 <p><strong>Motivo:</strong> {{motivo}}</p>
                 <p><strong>Tipo:</strong> {{tipo}}</p>
                 <p><strong>Duración estimada:</strong> {{duracion}} minutos</p>
+                <p><strong>Observaciones:</strong> {{observaciones}}</p>
               </div>
               
               <p><strong>Importante:</strong></p>
@@ -531,6 +534,7 @@ export class EmailService {
         Motivo: {{motivo}}
         Tipo: {{tipo}}
         Duración: {{duracion}} minutos
+        Observaciones: {{observaciones}}
         
         Importante:
         - Llegue 15 minutos antes
@@ -692,6 +696,7 @@ export class EmailService {
                 <p><strong>Motivo:</strong> {{motivo}}</p>
                 <p><strong>Tipo:</strong> {{tipo}}</p>
                 <p><strong>Duración:</strong> {{duracion}} minutos</p>
+                <p><strong>Observaciones:</strong> {{observaciones}}</p>
               </div>
               
               <p>Puede revisar todos sus pacientes en el sistema.</p>
@@ -1369,6 +1374,10 @@ export class EmailService {
                   <span class="info-label">Tipo:</span>
                   <span class="info-value">{{tipo}}</span>
                 </div>
+                <div class="info-row">
+                  <span class="info-label">Observaciones:</span>
+                  <span class="info-value">{{observaciones}}</span>
+                </div>
               </div>
               
               <div style="margin: 20px 0;">
@@ -1406,6 +1415,7 @@ export class EmailService {
         - Médico: {{medicoNombre}}
         - Motivo: {{motivo}}
         - Tipo: {{tipo}}
+        - Observaciones: {{observaciones}}
         
         Importante:
         - Llegue 15 minutos antes de su nueva cita
@@ -1491,6 +1501,10 @@ export class EmailService {
                   <span class="info-label">Tipo:</span>
                   <span class="info-value">{{tipo}}</span>
                 </div>
+                <div class="info-row">
+                  <span class="info-label">Observaciones:</span>
+                  <span class="info-value">{{observaciones}}</span>
+                </div>
               </div>
               
               <div style="margin: 20px 0;">
@@ -1528,6 +1542,7 @@ export class EmailService {
         - Paciente: {{pacienteNombre}}
         - Motivo: {{motivo}}
         - Tipo: {{tipo}}
+        - Observaciones: {{observaciones}}
         
         Acciones recomendadas:
         - Actualizar su agenda médica con la nueva fecha/hora

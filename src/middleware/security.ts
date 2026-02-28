@@ -104,12 +104,13 @@ export const requireRole = (roles: string[]) => {
   };
 };
 
-// Middleware de validación de input
+// Middleware de validación de input (respuesta con mismo formato que el controller: success + error.message)
 export const validateInput = (schema: Joi.ObjectSchema) => {
   return (req: Request, res: Response, next: NextFunction): void => {
     const { error } = schema.validate(req.body);
     if (error) {
-      res.status(400).json({ error: error.details[0]?.message || 'Error de validación' });
+      const msg = error.details.map(d => d.message).join('; ') || 'Error de validación';
+      res.status(400).json({ success: false, error: { message: msg } });
       return;
     }
     next();
@@ -151,7 +152,7 @@ export const validateInformeUpdate = validateInput(Joi.object({
   creado_por: Joi.number().optional()
 }));
 
-// Validación específica para pacientes (solo datos básicos)
+// Validación específica para pacientes (solo datos básicos). unknown(true) permite campos extra del formulario.
 export const validatePaciente = validateInput(Joi.object({
   nombres: Joi.string().min(2).required(),
   apellidos: Joi.string().min(2).required(),
@@ -160,23 +161,26 @@ export const validatePaciente = validateInput(Joi.object({
   telefono: Joi.string().min(8).required(),
   edad: Joi.number().integer().min(0).max(150).required(),
   sexo: Joi.string().valid('Masculino', 'Femenino', 'Otro').required(),
+  remitido_por: Joi.string().max(150).allow('').optional(),
   activo: Joi.boolean().optional()
-}));
+}).unknown(true));
 
-// Validación para actualización de pacientes (incluye campos médicos opcionales)
+// Validación para actualización de pacientes. unknown(true) evita 400 cuando el front envía id, fecha_creacion, etc.
+// allow('') en strings opcionales para que campos vacíos del formulario no fallen.
 export const validatePacienteUpdate = validateInput(Joi.object({
-  nombres: Joi.string().min(2).optional(),
-  apellidos: Joi.string().min(2).optional(),
-  cedula: Joi.string().min(7).optional(),
-  email: Joi.string().email().optional(),
-  telefono: Joi.string().min(8).optional(),
+  nombres: Joi.string().min(2).allow('').optional(),
+  apellidos: Joi.string().min(2).allow('').optional(),
+  cedula: Joi.string().min(7).allow('').optional(),
+  email: Joi.string().email().allow('').optional(),
+  telefono: Joi.string().min(8).allow('').optional(),
   edad: Joi.number().integer().min(0).max(150).optional(),
   sexo: Joi.string().valid('Masculino', 'Femenino', 'Otro').optional(),
+  remitido_por: Joi.string().max(150).allow('').optional(),
   motivo_consulta: Joi.string().allow('').optional(),
   diagnostico: Joi.string().allow('').optional(),
   conclusiones: Joi.string().allow('').optional(),
   plan: Joi.string().allow('').optional()
-}));
+}).unknown(true));
 
 // Validación específica para consultas
 export const validateConsulta = validateInput(Joi.object({

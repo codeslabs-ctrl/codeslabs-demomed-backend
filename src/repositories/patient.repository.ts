@@ -10,6 +10,7 @@ export interface PatientData {
   sexo: 'Masculino' | 'Femenino' | 'Otro';
   email?: string;
   telefono?: string;
+  remitido_por?: string;
   medico_id?: number;
   motivo_consulta?: string;
   diagnostico?: string;
@@ -24,10 +25,26 @@ export interface PatientData {
   fecha_actualizacion?: string;
 }
 
+// Columnas permitidas para UPDATE en la tabla pacientes (evita enviar motivo_consulta, diagnostico, etc. que están en historico)
+const PACIENTES_UPDATE_COLUMNS = [
+  'nombres', 'apellidos', 'cedula', 'edad', 'sexo', 'email', 'telefono',
+  'activo', 'antecedentes_otros', 'remitido_por'
+];
+
 // Implementación con PostgreSQL
 export class PatientRepository extends PostgresRepository<PatientData> {
   constructor() {
     super('pacientes');
+  }
+
+  override async update(id: string | number, data: Partial<PatientData>): Promise<PatientData> {
+    const filtered: Record<string, unknown> = {};
+    for (const key of PACIENTES_UPDATE_COLUMNS) {
+      if (data[key as keyof PatientData] !== undefined) {
+        filtered[key] = data[key as keyof PatientData];
+      }
+    }
+    return super.update(id, filtered as Partial<PatientData>);
   }
 
   async findByEmail(email: string): Promise<PatientData | null> {

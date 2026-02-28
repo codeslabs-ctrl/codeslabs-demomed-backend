@@ -24,6 +24,7 @@ import plantillaHistoriaRoutes from './plantilla-historia.js';
 import usersRoutes from './users.js';
 import menuRoutes from './menu.js';
 import antecedentesTipoRoutes from './antecedentes-tipo.js';
+import planesRoutes from './planes.js';
 import externalV1Routes from './external/v1/index.js';
 import { ApiResponse } from '../types/index.js';
 import { config } from '../config/environment.js';
@@ -110,6 +111,7 @@ router.use('/plantillas-historias', plantillaHistoriaRoutes);
 router.use('/users', usersRoutes);
 router.use('/menu', menuRoutes);
 router.use('/antecedentes-tipo', antecedentesTipoRoutes);
+router.use('/planes', planesRoutes);
 router.use('/external/v1', externalV1Routes);
 
 export default router;

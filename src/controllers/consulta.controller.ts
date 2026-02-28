@@ -659,9 +659,9 @@ export class ConsultaController {
         const result = await client.query(
           `INSERT INTO consultas_pacientes 
            (paciente_id, medico_id, motivo_consulta, fecha_pautada, hora_pautada, 
-            estado_consulta, duracion_estimada, prioridad, tipo_consulta, 
+            estado_consulta, duracion_estimada, prioridad, tipo_consulta, observaciones,
             recordatorio_enviado, clinica_alias, fecha_creacion, fecha_actualizacion)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
            RETURNING *`,
           [
             consultaData.paciente_id,
@@ -673,6 +673,7 @@ export class ConsultaController {
             consultaData.duracion_estimada || 30,
             consultaData.prioridad || 'normal',
             consultaData.tipo_consulta || 'primera_vez',
+            consultaData.observaciones ?? null,
             false,
             clinicaAlias
           ]
@@ -698,6 +699,7 @@ export class ConsultaController {
           if (pacienteData?.email && medicoData?.email) {
             const emailService = new EmailService();
             
+            const observaciones = (consulta.observaciones || consultaData.observaciones || '').trim();
             const consultaInfo = {
               pacienteNombre: `${pacienteData.nombres} ${pacienteData.apellidos}`,
               medicoNombre: `${medicoData.nombres} ${medicoData.apellidos}`,
@@ -705,7 +707,8 @@ export class ConsultaController {
               hora: consultaData.hora_pautada,
               motivo: consultaData.motivo_consulta,
               tipo: consultaData.tipo_consulta,
-              duracion: consultaData.duracion_estimada
+              duracion: consultaData.duracion_estimada,
+              observaciones: observaciones || '—'
             };
 
             // Enviar emails en paralelo
@@ -1229,6 +1232,7 @@ export class ConsultaController {
             cp.tipo_consulta,
             cp.fecha_pautada,
             cp.hora_pautada,
+            cp.observaciones,
             p.nombres as paciente_nombres,
             p.apellidos as paciente_apellidos,
             p.email as paciente_email,
@@ -1246,7 +1250,7 @@ export class ConsultaController {
 
         if (consultaCompleta && consultaCompleta.paciente_email && consultaCompleta.medico_email) {
           console.log('📧 Enviando emails de reagendamiento...');
-          
+          const observacionesReagendar = (consultaCompleta.observaciones || consulta?.observaciones || '').trim();
           const emailService = new EmailService();
           const emailData = {
             pacienteNombre: `${consultaCompleta.paciente_nombres} ${consultaCompleta.paciente_apellidos}`,
@@ -1256,7 +1260,8 @@ export class ConsultaController {
             fechaNueva: consultaCompleta.fecha_pautada,
             horaNueva: consultaCompleta.hora_pautada,
             motivo: consultaCompleta.motivo_consulta,
-            tipo: consultaCompleta.tipo_consulta
+            tipo: consultaCompleta.tipo_consulta,
+            observaciones: observacionesReagendar || '—'
           };
 
           try {
