@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { postgresPool } from '../config/database.js';
 import { ApiResponse } from '../types/index.js';
 import { EmailService } from '../services/email.service.js';
+import { checkLimiteMedicos } from '../services/parametros-clinica.service.js';
 import bcrypt from 'bcrypt';
 
 /**
@@ -35,6 +36,15 @@ export class SolicitudesDemoController {
       }
 
       const clinicaAlias = process.env['CLINICA_ALIAS'] || 'demomed';
+
+      try {
+        await checkLimiteMedicos();
+      } catch (limitError: unknown) {
+        const msg = limitError instanceof Error ? limitError.message : 'Límite de médicos alcanzado.';
+        res.status(400).json({ success: false, error: { message: msg } } as ApiResponse<null>);
+        return;
+      }
+
       const client = await postgresPool.connect();
 
       try {

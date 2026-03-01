@@ -9,7 +9,12 @@ export class FinanzasController {
   // Obtener consultas financieras con filtros y paginación
   static async getConsultasFinancieras(req: Request, res: Response): Promise<void> {
     try {
-      const { filtros, paginacion, moneda } = req.body;
+      let { filtros = {}, paginacion, moneda } = req.body;
+      const user = (req as any).user;
+      // Si es médico, filtrar solo sus consultas (admin/finanzas ven todo)
+      if (user?.rol === 'medico' && user?.medico_id) {
+        filtros = { ...filtros, medico_id: user.medico_id };
+      }
 
       let consultas: any[] = [];
 
@@ -331,7 +336,11 @@ export class FinanzasController {
   // Obtener resumen financiero con separación por moneda
   static async getResumenFinanciero(req: Request, res: Response): Promise<void> {
     try {
-      const { filtros, moneda } = req.body;
+      let { filtros = {}, moneda } = req.body;
+      const user = (req as any).user;
+      if (user?.rol === 'medico' && user?.medico_id) {
+        filtros = { ...filtros, medico_id: user.medico_id };
+      }
 
       let consultas: any[] = [];
 
@@ -593,6 +602,7 @@ export class FinanzasController {
     try {
       const { id } = req.params;
       const { fecha_pago, metodo_pago, observaciones } = req.body;
+      const user = (req as any).user;
 
       if (!fecha_pago || !metodo_pago) {
         res.status(400).json({
@@ -604,6 +614,21 @@ export class FinanzasController {
 
       const client = await postgresPool.connect();
       try {
+        // Si es médico, solo puede marcar sus propias consultas
+        if (user?.rol === 'medico' && user?.medico_id) {
+          const check = await client.query(
+            'SELECT id FROM consultas_pacientes WHERE id = $1 AND medico_id = $2',
+            [id, user.medico_id]
+          );
+          if (check.rows.length === 0) {
+            res.status(403).json({
+              success: false,
+              error: { message: 'No puede marcar como pagada una consulta de otro médico' }
+            } as ApiResponse<null>);
+            return;
+          }
+        }
+
         const result = await client.query(
           `UPDATE consultas_pacientes 
            SET fecha_pago = $1,
@@ -647,7 +672,11 @@ export class FinanzasController {
   // Exportar reporte financiero
   static async exportarReporte(req: Request, res: Response): Promise<void> {
     try {
-      const { formato, filtros } = req.body;
+      let { formato, filtros = {} } = req.body;
+      const user = (req as any).user;
+      if (user?.rol === 'medico' && user?.medico_id) {
+        filtros = { ...filtros, medico_id: user.medico_id };
+      }
       console.log('🔍 FILTROS RECIBIDOS EN EXPORTACIÓN:', filtros);
       
       
@@ -863,7 +892,11 @@ export class FinanzasController {
     try {
       console.log('🔍 EXPORTACIÓN AVANZADA - BODY COMPLETO:', JSON.stringify(req.body, null, 2));
       
-      const { filtros, opciones } = req.body;
+      let { filtros, opciones } = req.body;
+      const user = (req as any).user;
+      if (user?.rol === 'medico' && user?.medico_id) {
+        filtros = { ...(filtros || {}), medico_id: user.medico_id };
+      }
       
       // Validar que los datos requeridos estén presentes
       if (!filtros) {

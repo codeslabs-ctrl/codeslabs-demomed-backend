@@ -1,6 +1,7 @@
 import { PatientRepository, PatientData, PatientRepositoryType } from '../repositories/patient.repository.js';
 import { PaginationInfo } from '../types/index.js';
 import { postgresPool } from '../config/database.js';
+import { checkLimitePacientes } from './parametros-clinica.service.js';
 
 export class PatientService {
   private patientRepository: InstanceType<PatientRepositoryType>;
@@ -163,6 +164,9 @@ export class PatientService {
       if (!clinicaAlias) {
         throw new Error('CLINICA_ALIAS no está configurada en las variables de entorno');
       }
+
+      // Límites de la clínica configurada (parametros_clinicas)
+      await checkLimitePacientes();
       
       console.log('✅ PatientService - Validaciones pasadas, iniciando transacción...');
       console.log('🏥 PatientService - Clínica asignada:', clinicaAlias);
@@ -229,7 +233,7 @@ export class PatientService {
       }
     } catch (error) {
       console.error('❌ PatientService - Error en createPatient:', error);
-      throw new Error(`Failed to create patient: ${(error as Error).message}`);
+      throw error instanceof Error ? error : new Error(String(error));
     }
   }
 
