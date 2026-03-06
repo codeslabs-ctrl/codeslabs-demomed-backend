@@ -94,8 +94,8 @@ export class ConsultaController {
           paramIndex++;
         }
 
-        // Ordenamiento
-        sql += ' ORDER BY fecha_pautada DESC, hora_pautada DESC';
+        // Ordenamiento: primero agendadas/reagendadas, luego por fecha descendente
+        sql += ` ORDER BY (CASE WHEN estado_consulta IN ('agendada', 'reagendada') THEN 0 ELSE 1 END), fecha_pautada DESC, hora_pautada DESC`;
 
         // Paginación
         sql += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
