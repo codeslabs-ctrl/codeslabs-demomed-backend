@@ -10,8 +10,11 @@ const VENEZUELA_TZ = 'America/Caracas';
 function getFechasVenezuela(): { hoy: string; hoyMenos7: string; hoyMenos30: string } {
   const now = new Date();
   const hoy = now.toLocaleDateString('en-CA', { timeZone: VENEZUELA_TZ });
-  const [y, m, d] = hoy.split('-').map(Number);
-  const dateHoy = new Date(y, m - 1, d);
+  const parts = hoy.split('-').map(Number);
+  const y: number = Number(parts[0]) || 0;
+  const m: number = Math.max(0, (Number(parts[1]) || 1) - 1);
+  const d: number = Number(parts[2]) || 1;
+  const dateHoy = new Date(y, m, d);
   dateHoy.setDate(dateHoy.getDate() - 7);
   const hoyMenos7 = `${dateHoy.getFullYear()}-${String(dateHoy.getMonth() + 1).padStart(2, '0')}-${String(dateHoy.getDate()).padStart(2, '0')}`;
   dateHoy.setDate(dateHoy.getDate() - 23);
@@ -1532,14 +1535,14 @@ export class ConsultaController {
         };
 
         if (medicoId != null) {
-          data.consultas_esta_semana = parseInt(stats.consultas_esta_semana ?? 0);
-          data.no_asistieron = parseInt(stats.no_asistieron ?? 0);
+          data['consultas_esta_semana'] = parseInt(stats.consultas_esta_semana ?? 0);
+          data['no_asistieron'] = parseInt(stats.no_asistieron ?? 0);
           const pacResult = await client.query(
             `SELECT COUNT(DISTINCT paciente_id) as pacientes_atendidos FROM consultas_pacientes 
              WHERE medico_id = $1 AND estado_consulta = 'finalizada' AND (fecha_pautada::date) >= $2::date`,
             [medicoId, fechas.hoyMenos30]
           );
-          data.pacientes_atendidos_30d = parseInt(pacResult.rows[0]?.pacientes_atendidos ?? 0);
+          data['pacientes_atendidos_30d'] = parseInt(pacResult.rows[0]?.pacientes_atendidos ?? 0);
         }
 
         res.json({
