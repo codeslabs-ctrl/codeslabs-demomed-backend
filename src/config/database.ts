@@ -20,6 +20,15 @@ const postgresConfig = {
   statement_timeout: parseInt(process.env['POSTGRES_QUERY_TIMEOUT'] || '10000'),
 };
 
+// Log connection target at load time (no password) to verify config.env was applied
+console.log('[DB] Config cargada:', {
+  host: postgresConfig.host,
+  port: postgresConfig.port,
+  database: postgresConfig.database || '(vacío → conexión por defecto al usuario)',
+  user: postgresConfig.user,
+  cwd: configDir
+});
+
 // Create PostgreSQL connection pool
 export const postgresPool: Pool = new Pool(postgresConfig);
 

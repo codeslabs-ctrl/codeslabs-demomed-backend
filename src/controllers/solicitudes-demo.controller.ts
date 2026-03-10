@@ -36,6 +36,7 @@ export class SolicitudesDemoController {
       }
 
       const clinicaAlias = process.env['CLINICA_ALIAS'] || 'demomed';
+      console.log('[SolicitudDemo] Inicio:', { email: emailTrim, especialidadId, clinicaAlias });
 
       try {
         await checkLimiteMedicos();
@@ -46,6 +47,14 @@ export class SolicitudesDemoController {
       }
 
       const client = await postgresPool.connect();
+      try {
+        const dbInfo = await client.query(
+          `SELECT current_database() AS db, current_schema() AS schema, inet_server_addr()::text AS server_ip`
+        );
+        console.log('[SolicitudDemo] Conexión real:', dbInfo.rows[0]);
+      } catch (e) {
+        console.warn('[SolicitudDemo] No se pudo leer info de conexión:', e);
+      }
 
       try {
         await client.query('BEGIN');
@@ -78,15 +87,16 @@ export class SolicitudesDemoController {
           return;
         }
 
-        // Insertar médico
+        // Insertar médico (sin columna sexo: no existe en schema estándar)
         const medicoResult = await client.query(
-          `INSERT INTO medicos (nombres, apellidos, cedula, email, telefono, especialidad_id, sexo, mpps, cm)
-           VALUES ($1, $2, NULL, $3, $4, $5, NULL, NULL, NULL)
+          `INSERT INTO medicos (nombres, apellidos, cedula, email, telefono, especialidad_id, mpps, cm)
+           VALUES ($1, $2, NULL, $3, $4, $5, NULL, NULL)
            RETURNING *`,
           [nombres, apellidos, emailTrim, telefonoVal, especialidadId]
         );
         const newMedico = medicoResult.rows[0];
         const medicoId = newMedico.id;
+        console.log('[SolicitudDemo] Médico creado id:', medicoId);
 
         // Insertar en medicos_clinicas
         await client.query(
@@ -115,14 +125,35 @@ export class SolicitudesDemoController {
           [username, emailTrim, hashedOtp, 'medico', medicoId, true, false, true, null]
         );
 
-        // Registrar en solicitudes_demo para trazabilidad (estado completado)
-        await client.query(
-          `INSERT INTO solicitudes_demo (nombres, email, telefono, mensaje, estado)
-           VALUES ($1, $2, $3, $4, $5)`,
-          [nombres + ' ' + apellidos, emailTrim, telefonoVal !== 'N/A' ? telefonoVal : null, mensaje ? String(mensaje).trim() : null, 'completado']
+        // Registrar en solicitudes_demo para trazabilidad (opcional: si la tabla no existe no falla)
+        await client.query('SAVEPOINT solicitudes_demo_sp');
+        try {
+          await client.query(
+            `INSERT INTO solicitudes_demo (nombres, email, telefono, mensaje, estado)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [nombres + ' ' + apellidos, emailTrim, telefonoVal !== 'N/A' ? telefonoVal : null, mensaje ? String(mensaje).trim() : null, 'completado']
+          );
+        } catch (solicitudErr) {
+          await client.query('ROLLBACK TO SAVEPOINT solicitudes_demo_sp');
+          console.warn('SolicitudesDemoController: tabla solicitudes_demo no disponible o error al insertar:', solicitudErr);
+        }
+
+        // Verificación ANTES de COMMIT (misma transacción)
+        const verifyBefore = await client.query(
+          'SELECT id, email FROM medicos WHERE id = $1',
+          [medicoId]
         );
+        console.log('[SolicitudDemo] Verificación pre-COMMIT:', verifyBefore.rows[0] ?? 'ninguna fila');
 
         await client.query('COMMIT');
+        console.log('[SolicitudDemo] COMMIT ok, médico y usuario creados');
+
+        // Verificación DESPUÉS de COMMIT (misma conexión)
+        const verify = await client.query(
+          'SELECT id, email FROM medicos WHERE id = $1',
+          [medicoId]
+        );
+        console.log('[SolicitudDemo] Verificación post-COMMIT:', verify.rows[0] ?? 'ninguna fila');
 
         // Enviar email de bienvenida (mismo que crear nuevo médico)
         try {
@@ -175,7 +206,7 @@ export class SolicitudesDemoController {
             return;
           }
         }
-        console.error('SolicitudesDemoController.create error:', dbError);
+        console.error('SolicitudesDemoController.create error (ROLLBACK):', dbError);
         res.status(500).json({
           success: false,
           error: { message: 'Error al crear el usuario de pruebas' }

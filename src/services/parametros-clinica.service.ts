@@ -25,6 +25,9 @@ export async function getLimitesConfigurada(): Promise<LimitesClinica | null> {
       maximo_medicos: Number(result.rows[0].maximo_medicos),
       maximo_pacientes: Number(result.rows[0].maximo_pacientes)
     };
+  } catch {
+    // Tabla inexistente o error de BD: no aplicar límites
+    return null;
   } finally {
     client.release();
   }
@@ -40,6 +43,8 @@ export async function getConteoMedicosConfigurada(): Promise<number> {
       `SELECT COUNT(*)::int AS total FROM medicos_clinicas`
     );
     return Number(result.rows[0]?.total ?? 0);
+  } catch {
+    return 0;
   } finally {
     client.release();
   }
