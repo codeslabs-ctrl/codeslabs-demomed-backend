@@ -3,6 +3,7 @@ import { postgresPool } from '../config/database.js';
 import { ApiResponse } from '../types/index.js';
 import { EmailService } from '../services/email.service.js';
 import menuService from '../services/menu.service.js';
+import clinicaAtencionService from '../services/clinica-atencion.service.js';
 
 const VENEZUELA_TZ = 'America/Caracas';
 
@@ -693,8 +694,8 @@ export class ConsultaController {
           `INSERT INTO consultas_pacientes 
            (paciente_id, medico_id, motivo_consulta, fecha_pautada, hora_pautada, 
             estado_consulta, duracion_estimada, prioridad, tipo_consulta, observaciones,
-            recordatorio_enviado, clinica_alias, fecha_creacion, fecha_actualizacion)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            recordatorio_enviado, clinica_alias, clinica_atencion_id, fecha_creacion, fecha_actualizacion)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
            RETURNING *`,
           [
             consultaData.paciente_id,
@@ -708,11 +709,29 @@ export class ConsultaController {
             consultaData.tipo_consulta || 'primera_vez',
             consultaData.observaciones ?? null,
             false,
-            clinicaAlias
+            clinicaAlias,
+            consultaData.clinica_atencion_id ?? null
           ]
         );
 
         const consulta = result.rows[0];
+
+        // Insertar registro en historico_pacientes: titulo = tipo_consulta, consulta_id = id de la consulta recién creada
+        const tipoConsulta = consulta.tipo_consulta || consultaData.tipo_consulta || 'primera_vez';
+        await client.query(
+          `INSERT INTO historico_pacientes 
+           (paciente_id, medico_id, consulta_id, titulo, motivo_consulta, fecha_consulta, clinica_alias)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [
+            consultaData.paciente_id,
+            consultaData.medico_id,
+            consulta.id,
+            tipoConsulta,
+            consultaData.motivo_consulta ?? null,
+            consultaData.fecha_pautada ?? consulta.fecha_pautada,
+            clinicaAlias ?? null
+          ]
+        );
 
         // Enviar emails de confirmación
         try {
@@ -740,6 +759,19 @@ export class ConsultaController {
             const observaciones = (consulta.observaciones || consultaData.observaciones || '').trim();
             const fechaPautada = consulta.fecha_pautada ?? consultaData.fecha_pautada;
             const duracionEstimada = consulta.duracion_estimada ?? consultaData.duracion_estimada ?? 30;
+            let nombreClinica = '';
+            let direccionClinica = '';
+            const capId = consulta.clinica_atencion_id ?? consultaData.clinica_atencion_id;
+            if (capId) {
+              const clinicaAtencion = await clinicaAtencionService.getById(capId);
+              if (clinicaAtencion) {
+                nombreClinica = clinicaAtencion.nombre_clinica || '';
+                direccionClinica = clinicaAtencion.direccion_clinica || '';
+              }
+            }
+            const bloqueDireccion = (nombreClinica || direccionClinica)
+              ? `<p><strong>Lugar de atención:</strong> ${nombreClinica || '—'}</p>${direccionClinica ? `<p><strong>Dirección:</strong> ${direccionClinica}</p>` : ''}`
+              : '';
             const consultaInfo = {
               pacienteNombre: `${pacienteData.nombres} ${pacienteData.apellidos}`,
               medicoNombre: `${medicoData.nombres} ${medicoData.apellidos}`,
@@ -749,7 +781,10 @@ export class ConsultaController {
               motivo: consultaData.motivo_consulta,
               tipo: consultaData.tipo_consulta,
               duracion: duracionEstimada,
-              observaciones: observaciones || '—'
+              observaciones: observaciones || '—',
+              nombreClinica: nombreClinica || '—',
+              direccionClinica,
+              bloqueDireccion
             };
 
             // Enviar emails en paralelo

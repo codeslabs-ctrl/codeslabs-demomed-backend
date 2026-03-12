@@ -419,9 +419,14 @@ export class PatientService {
         
         console.log('🔍 PostgreSQL query - medico_id:', medicoId, 'today:', today);
         
-        // Query to get unique patients from both historico_pacientes and consultas_pacientes
+        // Query to get unique patients from both historico_pacientes and consultas_pacientes.
+        // tiene_consulta: true si el paciente tiene al menos una consulta (para mostrar Historial vs Agendar una Consulta).
         const result = await client.query(`
-          SELECT DISTINCT p.*
+          SELECT DISTINCT p.*,
+            EXISTS (
+              SELECT 1 FROM consultas_pacientes c
+              WHERE c.paciente_id = p.id AND c.medico_id = $1
+            ) AS tiene_consulta
           FROM pacientes p
           WHERE p.id IN (
             SELECT DISTINCT paciente_id 

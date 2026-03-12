@@ -215,6 +215,9 @@ export class EmailService {
       tipo: string;
       duracion: number;
       observaciones?: string;
+      direccionClinica?: string;
+      bloqueDireccion?: string;
+      nombreClinica?: string;
     }
   ): Promise<{ paciente: boolean; medico: boolean }> {
     const results = { paciente: false, medico: false };
@@ -523,6 +526,7 @@ export class EmailService {
                 <p><strong>Tipo:</strong> {{tipo}}</p>
                 <p><strong>Duración estimada:</strong> {{duracion}} minutos</p>
                 <p><strong>Observaciones:</strong> {{observaciones}}</p>
+                {{bloqueDireccion}}
               </div>
               
               <p><strong>Importante:</strong></p>
@@ -557,6 +561,8 @@ export class EmailService {
         Tipo: {{tipo}}
         Duración: {{duracion}} minutos
         Observaciones: {{observaciones}}
+        Lugar de atención: {{nombreClinica}}
+        Dirección: {{direccionClinica}}
         
         Importante:
         - Llegue 15 minutos antes
@@ -719,6 +725,7 @@ export class EmailService {
                 <p><strong>Tipo:</strong> {{tipo}}</p>
                 <p><strong>Duración:</strong> {{duracion}} minutos</p>
                 <p><strong>Observaciones:</strong> {{observaciones}}</p>
+                {{bloqueDireccion}}
               </div>
               
               <p>Puede revisar todos sus pacientes en el sistema.</p>
