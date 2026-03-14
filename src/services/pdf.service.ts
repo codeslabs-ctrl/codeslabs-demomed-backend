@@ -277,6 +277,10 @@ export class PDFService {
     out = out.replace(/<p[^>]*>\s*Firma Digital del Sistema\s*<\/p>/gi, '');
     out = out.replace(/<p[^>]*>\s*Documento generado electrónicamente\s*<\/p>/gi, '');
     out = out.replace(/<p[^>]*>\s*Fecha:\s*[^<]*<\/p>/gi, '');
+    // Quitar nombre del médico al final del contenido (ya aparece en el bloque de firma)
+    out = out.replace(/\s*<p[^>]*>\s*(<strong>\s*)?Dr\.\s+[\w\sáéíóúñÁÉÍÓÚÑ]+(\s*<\/strong>)?\s*<\/p>\s*$/gi, '');
+    // Quitar " Dr. Nombre Apellido" cuando está al final de un párrafo (mismo <p> que el texto)
+    out = out.replace(/([."])\s*Dr\.\s+[\w\sáéíóúñÁÉÍÓÚÑ]+\s*<\/p>/gi, '$1</p>');
     return out.trim();
   }
 
@@ -507,12 +511,9 @@ export class PDFService {
                  }
           
                  .logo {
-                   /* Logo más grande para mejor visibilidad */
-                   width: 140px;
-                   height: 140px;
-                   margin: 0 0 3px 0;
+                   /* Tamaño real de la imagen (sin forzar ancho/alto) */
                    display: block;
-                   object-fit: contain;
+                   margin: 0 0 3px 0;
                    break-inside: avoid;
                  }
           
@@ -798,6 +799,11 @@ export class PDFService {
     // Quitar todos los separadores <hr> del contenido (no usar separador entre bloques ni dentro del contenido)
     contenidoProcesado = contenidoProcesado.replace(/<hr\s*\/?>\s*/gi, '');
     
+    // Quitar nombre del médico al final del contenido (ya está en el bloque de firma)
+    contenidoProcesado = contenidoProcesado.replace(/\s*<p[^>]*>\s*(<strong>\s*)?Dr\.\s+[\w\sáéíóúñÁÉÍÓÚÑ]+(\s*<\/strong>)?\s*<\/p>\s*$/gi, '').trim();
+    // Quitar " Dr. Nombre Apellido" cuando está al final de un párrafo (mismo <p> que el texto)
+    contenidoProcesado = contenidoProcesado.replace(/([."])\s*Dr\.\s+[\w\sáéíóúñÁÉÍÓÚÑ]+\s*<\/p>/gi, '$1</p>');
+    
     // Limpiar espacios en blanco excesivos
     contenidoProcesado = contenidoProcesado.replace(/\n{3,}/g, '\n\n');
     
@@ -827,6 +833,7 @@ export class PDFService {
         console.warn('⚠️ No se proporcionó ruta de logo');
         return '';
       }
+      const pathForResolve = logoPath.replace(/^\/+/, '');
 
       // Resolver rutas relativas desde la raíz del backend.
       // En runtime compilado, __dirname apunta a dist/services/, por eso subimos 2 niveles para llegar a dist/
@@ -841,22 +848,17 @@ export class PDFService {
       // Candidatos (fallback): primero dist/assets/ (cuando está compilado), luego assets/ (desarrollo)
       const candidates: string[] = [];
 
-      // Cuando está compilado, los assets están en dist/assets/
-      const normalized = logoPath.replace(/\\/g, '/');
+      const normalized = pathForResolve.replace(/\\/g, '/');
       if (normalized.startsWith('./assets/')) {
         // Buscar primero en dist/assets/ (cuando está compilado)
         candidates.push(resolveFromRoot(normalized.replace('./assets/', './dist/assets/'), distRoot));
-        // Luego en assets/ desde la raíz del proyecto (desarrollo)
-        candidates.push(resolveFromRoot(logoPath, projectRoot));
+        candidates.push(resolveFromRoot(pathForResolve, projectRoot));
       } else if (normalized.startsWith('assets/')) {
-        // Buscar primero en dist/assets/ (cuando está compilado)
-        candidates.push(resolveFromRoot('dist/' + logoPath, distRoot));
-        // Luego en assets/ desde la raíz del proyecto (desarrollo)
-        candidates.push(resolveFromRoot(logoPath, projectRoot));
+        candidates.push(resolveFromRoot('dist/' + pathForResolve, distRoot));
+        candidates.push(resolveFromRoot(pathForResolve, projectRoot));
       } else {
-        // Ruta absoluta o relativa sin prefijo assets/
-        candidates.push(resolveFromRoot(logoPath, distRoot));
-        candidates.push(resolveFromRoot(logoPath, projectRoot));
+        candidates.push(resolveFromRoot(pathForResolve, distRoot));
+        candidates.push(resolveFromRoot(pathForResolve, projectRoot));
       }
 
       for (const candidate of candidates) {
@@ -888,9 +890,6 @@ export class PDFService {
    * Obtiene la configuración específica de la clínica
    */
   private async obtenerConfiguracionClinica(clinicaAlias: string): Promise<any> {
-    // Obtener la URL base del frontend desde variables de entorno
-    const frontendUrl = process.env['FRONTEND_URL'] || 'http://localhost:4200';
-    
     const configuraciones: { [key: string]: any } = {
       'demomed': {
         nombre: process.env['CLINICA_NOMBRE'] || 'DemoMed',
@@ -922,16 +921,20 @@ export class PDFService {
       'clinica2': {
         nombre: 'Clínica San José',
         descripcion: 'Centro de Salud Integral',
+        direccion: process.env['CLINICA_DIRECCION'] || '',
         especialidad: 'Medicina General',
         color: '#2196F3',
-        logo: `${frontendUrl}/assets/logos/clinica2/logo.svg`
+        logoPath: process.env['LOGO_PATH'] || './assets/logos/clinica2/logo.svg',
+        logo: '' // Se llenará con base64
       },
       'default': {
-        nombre: 'Centro Médico',
-        descripcion: 'Servicios de Salud',
+        nombre: process.env['CLINICA_NOMBRE'] || 'Centro Médico',
+        descripcion: process.env['CLINICA_DESCRIPCION'] || 'Servicios de Salud',
+        direccion: process.env['CLINICA_DIRECCION'] || '',
         especialidad: 'Medicina General',
         color: '#666666',
-        logo: `${frontendUrl}/assets/logos/default/logo.svg`
+        logoPath: process.env['LOGO_PATH'] || './assets/logos/clinica/logo.png',
+        logo: '' // Se llenará con base64
       }
     };
 
