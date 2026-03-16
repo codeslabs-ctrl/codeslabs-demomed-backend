@@ -668,19 +668,16 @@ export class ConsultaController {
         }
       }
 
-      // Validar que la fecha sea futura (manejo de zona horaria)
-      const fechaConsulta = new Date(consultaData.fecha_pautada + 'T00:00:00.000Z'); // Forzar UTC
-      const fechaActual = new Date();
-      fechaActual.setUTCHours(0, 0, 0, 0); // Usar UTC para evitar problemas de zona horaria
-      
-      console.log('🔍 Validación de fecha:', {
+      // Validar que la fecha sea futura según zona horaria de Venezuela (America/Caracas)
+      const hoyVenezuela = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Caracas' }); // YYYY-MM-DD
+      const fechaPautada = String(consultaData.fecha_pautada ?? '').slice(0, 10);
+      const esFechaPasada = fechaPautada < hoyVenezuela;
+      console.log('🔍 Validación de fecha (America/Caracas):', {
         fechaRecibida: consultaData.fecha_pautada,
-        fechaConsulta: fechaConsulta.toISOString(),
-        fechaActual: fechaActual.toISOString(),
-        esFutura: fechaConsulta >= fechaActual
+        hoyVenezuela,
+        esFutura: !esFechaPasada
       });
-      
-      if (fechaConsulta < fechaActual) {
+      if (esFechaPasada) {
         res.status(400).json({
           success: false,
           error: { message: 'La fecha de la consulta debe ser futura (posterior a hoy)' }
