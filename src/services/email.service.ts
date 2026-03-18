@@ -725,7 +725,8 @@ export class EmailService {
                 <p><strong>Tipo:</strong> {{tipo}}</p>
                 <p><strong>Duración:</strong> {{duracion}} minutos</p>
                 <p><strong>Observaciones:</strong> {{observaciones}}</p>
-                {{bloqueDireccion}}
+                <p><strong>Lugar de atención:</strong> {{nombreClinica}}</p>
+                <p><strong>Dirección:</strong> {{direccionClinica}}</p>
               </div>
               
               <p>Puede revisar todos sus pacientes en el sistema.</p>

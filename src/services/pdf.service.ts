@@ -369,7 +369,6 @@ export class PDFService {
             </div>
             <div class="header-content${controlDate ? ' header-content-with-date' : ''}">
               <div class="document-title">Informe Médico</div>
-              <div class="document-number">N° ${informe.numero_informe}</div>
               ${controlDate ? `<div class="header-control-date">${controlDate}</div>` : ''}
             </div>
           </div>`;
