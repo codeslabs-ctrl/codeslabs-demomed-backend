@@ -123,7 +123,8 @@ export const validateLogin = validateInput(Joi.object({
   password: Joi.string().min(6).required()
 }));
 
-// Validación específica para informes médicos (titulo y tipo_informe opcionales para evitar 400)
+// Validación específica para informes médicos (titulo y tipo_informe opcionales para evitar 400).
+// creado_por es opcional: el controller lo rellena con medico_id o req.user.userId (p. ej. desde el chatbot).
 export const validateInforme = validateInput(Joi.object({
   titulo: Joi.string().min(0).max(200).allow('', null).optional(),
   tipo_informe: Joi.string().allow('', null).optional(),
@@ -134,7 +135,7 @@ export const validateInforme = validateInput(Joi.object({
   estado: Joi.string().valid('borrador', 'finalizado', 'firmado', 'enviado').default('borrador'),
   fecha_emision: Joi.string().allow('').optional(),
   observaciones: Joi.string().allow('').optional(),
-  creado_por: Joi.number().required()
+  creado_por: Joi.number().optional()
 }).unknown(true));
 
 // Validación para actualización de informes (campos opcionales)

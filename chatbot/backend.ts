@@ -19,17 +19,17 @@ export async function getClinicasAtencion(
   return { success: true, data };
 }
 
-/** Obtiene el usuario actual (rol, medico_id) usando el endpoint existente del backend. */
+/** Obtiene el usuario actual (rol, medico_id, userId) usando el endpoint existente del backend. */
 export async function getCurrentUser(
   token: string
-): Promise<{ success: boolean; data?: { rol?: string; medico_id?: number }; error?: { message: string } }> {
+): Promise<{ success: boolean; data?: { rol?: string; medico_id?: number; userId?: number }; error?: { message: string } }> {
   const res = await fetch(`${BASE}/auth/debug-user`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   const json = await res.json();
   if (!res.ok) return { success: false, error: { message: json?.error?.message || res.statusText } };
   const data = json?.data ?? {};
-  return { success: true, data: { rol: data.role, medico_id: data.medico_id } };
+  return { success: true, data: { rol: data.role, medico_id: data.medico_id, userId: data.userId } };
 }
 
 export async function createPatient(
@@ -254,12 +254,14 @@ export async function createInforme(
     contenido: string;
     paciente_id: number;
     medico_id: number;
+    creado_por?: number;
     fecha_emision?: string;
     observaciones?: string;
   }
 ): Promise<{ success: boolean; data?: { id: number }; error?: { message: string } }> {
   const body = {
     ...data,
+    creado_por: data.creado_por ?? data.medico_id,
     fecha_emision: data.fecha_emision ?? new Date().toISOString().slice(0, 10),
   };
   const res = await fetch(`${BASE}/informes-medicos`, {

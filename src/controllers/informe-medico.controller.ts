@@ -34,8 +34,12 @@ export class InformeMedicoController {
         return;
       }
 
-      // Obtener creado_por del body o del usuario autenticado (medico_id como fallback)
-      const usuarioCreador = creado_por || medico_id || (req as any).user?.userId || medico_id;
+      // creado_por: body, o userId del JWT, o medico_id (FK en BD es usuarios.id; si no hay userId usamos medico_id)
+      const usuarioCreador = creado_por ?? (req as any).user?.userId ?? medico_id;
+      if (usuarioCreador == null || usuarioCreador === undefined || (typeof usuarioCreador === 'number' && Number.isNaN(usuarioCreador))) {
+        res.status(400).json({ success: false, error: { message: 'Falta el campo "creado_por" o no se pudo determinar el usuario creador (medico_id o userId).' } });
+        return;
+      }
 
       const informe = await informeMedicoService.crearInforme({
         titulo,

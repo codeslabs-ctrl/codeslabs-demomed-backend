@@ -497,7 +497,18 @@ async function runTool(token: string, name: string, args: Record<string, unknown
         if (!pid) pid = (await resolvePacienteId(token, args)) ?? 0;
         if (!pid) return { success: false, error: { message: "Indique el paciente (nombre o ID)." } };
         const r = await backend.getHistoricoByPaciente(token, pid, Math.min(Number(args.limite) || 10, 50));
-        return { success: true, data: r.data ?? [] };
+        const list = r.data ?? [];
+        const tieneIncompleto = Array.isArray(list) && list.some((c: Record<string, unknown>) => {
+          const diag = (c.diagnostico ?? "").toString().trim();
+          const plan = (c.plan ?? "").toString().trim();
+          return diag === "" || plan === "";
+        });
+        const result: Record<string, unknown> = { success: true, data: list };
+        if (tieneIncompleto && list.length > 0) {
+          result.historial_incompleto = true;
+          result.mensaje_recordatorio = "La historia clínica de este paciente tiene una consulta reciente pero sin diagnóstico ni plan de tratamiento completados. Lo más adecuado para un informe completo es completar primero la historia en la aplicación; además, allí puedes elegir si incluir antecedentes y controles en el informe.\n\n¿Quieres que te lleve a la aplicación para completar la historia, o prefieres generar igual el informe solo con el texto que tú me indiques (el informe contendrá básicamente ese contenido, sin diagnóstico ni plan de la consulta reciente)?";
+        }
+        return result;
       }
       case "get_patient_data": {
         const pid = await resolvePacienteId(token, args);
@@ -512,9 +523,10 @@ async function runTool(token: string, name: string, args: Record<string, unknown
         if (!pid) pid = (await resolvePacienteId(token, args)) ?? 0;
         const userRes = await backend.getCurrentUser(token);
         const medico_id = userRes.data?.medico_id ?? 0;
+        const userId = userRes.data?.userId ?? medico_id;
         if (!pid || !medico_id) return { success: false, error: { message: "Faltan paciente o médico." } };
         const r = await backend.createInforme(token, {
-          paciente_id: pid, medico_id, titulo: "Informe médico", tipo_informe: String(args.tipo_informe ?? "general"),
+          paciente_id: pid, medico_id, creado_por: userId, titulo: "Informe médico", tipo_informe: String(args.tipo_informe ?? "general"),
           contenido: String(args.contenido ?? ""), observaciones: args.observaciones ? String(args.observaciones) : undefined,
         });
         return r.success ? { success: true, data: r.data, message: "Informe creado." } : { success: false, error: r.error };
