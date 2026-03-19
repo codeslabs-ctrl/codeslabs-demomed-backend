@@ -861,6 +861,8 @@ function requestPathname(req: Request): string {
   try {
     const u = new URL(req.url, "http://localhost");
     let p = u.pathname;
+    // ProxyPass con barra en destino (p. ej. .../3999/) puede producir //message
+    p = p.replace(/\/{2,}/g, "/");
     if (p.length > 1 && p.endsWith("/")) p = p.slice(0, -1);
     return p || "/";
   } catch {
