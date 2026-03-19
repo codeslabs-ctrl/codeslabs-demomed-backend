@@ -868,13 +868,12 @@ function requestPathname(req: Request): string {
   }
 }
 
-/** POST al chat: rutas que pueden llegar según ProxyPass / Apache. */
+/** POST al chat: rutas según ProxyPass / Apache (variantes comunes). */
 function isPostMessagePath(pathname: string): boolean {
-  return (
-    pathname === "/message" ||
-    pathname === "/api/chat/message" ||
-    pathname === "/chat/message"
-  );
+  const p = pathname.replace(/\/+$/, "") || "/";
+  if (/^\/(?:message|api\/chat\/message|chat\/message)$/.test(p)) return true;
+  if (p.endsWith("/api/chat/message")) return true;
+  return false;
 }
 
 async function handler(req: Request): Promise<Response> {
@@ -889,7 +888,7 @@ async function handler(req: Request): Promise<Response> {
   }
   if (pathname === "/metrics" && req.method === "GET") {
     const stats = metrics.getStats();
-    const recent = metrics.getRecent(Number(new URL(req.url).searchParams.get("recent")) || 30);
+    const recent = metrics.getRecent(Number(new URL(req.url, "http://localhost").searchParams.get("recent")) || 30);
     return new Response(JSON.stringify({ stats, recent }, null, 2), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -900,10 +899,18 @@ async function handler(req: Request): Promise<Response> {
   if (req.method === "POST") {
     console.warn("[chatbot] 404 POST pathname=", pathname, "req.url=", req.url);
   }
-  return new Response(JSON.stringify({ error: "Not Found" }), {
-    status: 404,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
+  return new Response(
+    JSON.stringify({
+      error: "Not Found",
+      path: pathname,
+      url: req.url,
+      hint: "Si path no es /message ni /api/chat/message, revisa ProxyPass en Apache.",
+    }),
+    {
+      status: 404,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    },
+  );
 }
 
 console.log(`🤖 Chatbot DemoMed escuchando en http://0.0.0.0:${PORT}`);
