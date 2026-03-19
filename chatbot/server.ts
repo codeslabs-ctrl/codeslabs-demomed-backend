@@ -856,25 +856,49 @@ function legacyActionToTool(action: string, data: Record<string, unknown>): { to
   }
 }
 
+/** Path normalizado (sin barra final) para rutas detrás de Apache / proxy. */
+function requestPathname(req: Request): string {
+  try {
+    const u = new URL(req.url, "http://localhost");
+    let p = u.pathname;
+    if (p.length > 1 && p.endsWith("/")) p = p.slice(0, -1);
+    return p || "/";
+  } catch {
+    return "/";
+  }
+}
+
+/** POST al chat: rutas que pueden llegar según ProxyPass / Apache. */
+function isPostMessagePath(pathname: string): boolean {
+  return (
+    pathname === "/message" ||
+    pathname === "/api/chat/message" ||
+    pathname === "/chat/message"
+  );
+}
+
 async function handler(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
-  const url = new URL(req.url);
-  if (url.pathname === "/health" && req.method === "GET") {
+  const pathname = requestPathname(req);
+  if (pathname === "/health" && req.method === "GET") {
     return new Response(JSON.stringify({ ok: true, service: "demomed-chatbot" }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
-  if (url.pathname === "/metrics" && req.method === "GET") {
+  if (pathname === "/metrics" && req.method === "GET") {
     const stats = metrics.getStats();
-    const recent = metrics.getRecent(Number(url.searchParams.get("recent")) || 30);
+    const recent = metrics.getRecent(Number(new URL(req.url).searchParams.get("recent")) || 30);
     return new Response(JSON.stringify({ stats, recent }, null, 2), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
-  if ((url.pathname === "/message" || url.pathname === "/api/chat/message") && req.method === "POST") {
+  if (isPostMessagePath(pathname) && req.method === "POST") {
     return handleMessage(req);
+  }
+  if (req.method === "POST") {
+    console.warn("[chatbot] 404 POST pathname=", pathname, "req.url=", req.url);
   }
   return new Response(JSON.stringify({ error: "Not Found" }), {
     status: 404,
