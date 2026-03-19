@@ -364,7 +364,7 @@ export class PDFService {
                        `<div class="logo-fallback" style="width: 140px; height: 140px; background: ${clinicaConfig.color}; border-radius: 6px; margin: 0 0 3px 0; display: flex; align-items: center; justify-content: center; color: white; font-size: 42px; font-weight: bold; box-shadow: 0 1px 4px rgba(0,0,0,0.1);">${clinicaConfig.nombre.charAt(0)}</div>`
                      }
               <div class="clinic-info">
-                ${clinicaConfig.descripcion} - ${clinicaConfig.especialidad}
+                ${clinicaConfig.descripcion}
               </div>
             </div>
             <div class="header-content${controlDate ? ' header-content-with-date' : ''}">
@@ -381,8 +381,8 @@ export class PDFService {
       if (nombreMedico) partes.push(`<p class="firma-nombre"><strong>Dr. ${nombreMedico}</strong></p>`);
       const med = informe.medicos || {};
       if (med.especialidad && String(med.especialidad).trim()) partes.push(`<p class="firma-dato">Especialidad: ${this.escapeHtmlPdf(med.especialidad)}</p>`);
-      if (med.mpps && String(med.mpps).trim()) partes.push(`<p class="firma-dato">MPPS: ${this.escapeHtmlPdf(med.mpps)}</p>`);
-      if (med.cm && String(med.cm).trim()) partes.push(`<p class="firma-dato">CM: ${this.escapeHtmlPdf(med.cm)}</p>`);
+      if (med.mpps && String(med.mpps).trim()) partes.push(`<p class="firma-dato">${this.escapeHtmlPdf(med.mpps)}</p>`);
+      if (med.cm && String(med.cm).trim()) partes.push(`<p class="firma-dato">${this.escapeHtmlPdf(med.cm)}</p>`);
       if (firmaBase64 || selloBase64) {
         partes.push('<div class="firma-imagenes">');
         if (firmaBase64) partes.push(`<img src="${firmaBase64}" alt="Firma digital" class="firma-img">`);
