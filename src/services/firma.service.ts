@@ -4,7 +4,41 @@ import crypto from 'crypto';
 import { postgresPool } from '../config/database.js';
 
 export class FirmaService {
-  
+  /** Ruta en BD → archivo en disco (varias raíces por distinto cwd al arrancar Node). */
+  private resolveStoredFilePath(storedPath: string): string | null {
+    if (!storedPath || typeof storedPath !== 'string') return null;
+    const trimmed = storedPath.trim();
+    if (!trimmed) return null;
+    if (path.isAbsolute(trimmed)) {
+      const abs = path.normalize(trimmed);
+      if (fs.existsSync(abs)) return abs;
+      return null;
+    }
+    const normalized = trimmed.replace(/^\/+/, '').replace(/\\/g, '/');
+    const packageRoot = path.join(__dirname, '..', '..');
+    const candidates = [
+      path.join(process.cwd(), normalized),
+      path.join(process.cwd(), 'backend', normalized),
+      path.join(packageRoot, normalized),
+      path.join(packageRoot, 'dist', normalized),
+      path.join(packageRoot, '..', normalized)
+    ];
+    for (const p of candidates) {
+      if (fs.existsSync(p)) return p;
+    }
+    return null;
+  }
+
+  private findFirmaSelloByConvention(medicoId: number, kind: 'firma' | 'sello'): string | null {
+    const exts = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
+    const base = `assets/firmas/medico_${medicoId}_${kind}`;
+    for (const ext of exts) {
+      const resolved = this.resolveStoredFilePath(`${base}${ext}`);
+      if (resolved) return resolved;
+    }
+    return null;
+  }
+
   /**
    * Guarda la firma digital de un médico
    * @param medicoId ID del médico
@@ -140,10 +174,8 @@ export class FirmaService {
     try {
       const firmaPath = await this.obtenerFirma(medicoId);
       if (firmaPath) {
-        // Normalizar la ruta: si comienza con /, removerlo; si no, usar tal cual
-        const normalizedPath = firmaPath.startsWith('/') ? firmaPath.substring(1) : firmaPath;
-        const fullPath = path.join(process.cwd(), normalizedPath);
-        if (fs.existsSync(fullPath)) {
+        const fullPath = this.resolveStoredFilePath(firmaPath);
+        if (fullPath && fs.existsSync(fullPath)) {
           fs.unlinkSync(fullPath);
           console.log(`✅ Firma eliminada para médico ${medicoId}`);
           console.log(`📁 Archivo eliminado: ${fullPath}`);
@@ -169,20 +201,16 @@ export class FirmaService {
         return '';
       }
       
-      // Normalizar la ruta: si comienza con /, removerlo; si no, usar tal cual
-      const normalizedPath = firmaPath.startsWith('/') ? firmaPath.substring(1) : firmaPath;
-      const fullPath = path.join(process.cwd(), normalizedPath);
-      
-      if (!fs.existsSync(fullPath)) {
-        console.warn(`⚠️ Archivo de firma no encontrado: ${fullPath}`);
-        console.warn(`   Ruta en BD: ${firmaPath}`);
-        console.warn(`   Ruta normalizada: ${normalizedPath}`);
+      const fullPath = this.resolveStoredFilePath(firmaPath);
+      if (!fullPath) {
+        console.warn(`⚠️ Archivo de firma no encontrado. Ruta en BD: ${firmaPath}`);
+        console.warn(`   cwd: ${process.cwd()}`);
         return '';
       }
-      
+
       const firmaBuffer = fs.readFileSync(fullPath);
       const base64 = firmaBuffer.toString('base64');
-      const ext = path.extname(firmaPath).toLowerCase();
+      const ext = path.extname(fullPath).toLowerCase();
       
       let mimeType = 'image/png';
       if (ext === '.jpg' || ext === '.jpeg') mimeType = 'image/jpeg';
@@ -217,13 +245,15 @@ export class FirmaService {
   async obtenerSelloBase64(medicoId: number): Promise<string> {
     try {
       const selloPath = await this.obtenerSello(medicoId);
-      if (!selloPath || typeof selloPath !== 'string') return '';
-      const normalizedPath = selloPath.startsWith('/') ? selloPath.substring(1) : selloPath;
-      const fullPath = path.join(process.cwd(), normalizedPath);
-      if (!fs.existsSync(fullPath)) return '';
+      let fullPath =
+        selloPath && typeof selloPath === 'string' ? this.resolveStoredFilePath(selloPath) : null;
+      if (!fullPath) {
+        fullPath = this.findFirmaSelloByConvention(medicoId, 'sello');
+      }
+      if (!fullPath) return '';
       const buf = fs.readFileSync(fullPath);
       const base64 = buf.toString('base64');
-      const ext = path.extname(selloPath).toLowerCase();
+      const ext = path.extname(fullPath).toLowerCase();
       let mimeType = 'image/png';
       if (ext === '.jpg' || ext === '.jpeg') mimeType = 'image/jpeg';
       else if (ext === '.gif') mimeType = 'image/gif';

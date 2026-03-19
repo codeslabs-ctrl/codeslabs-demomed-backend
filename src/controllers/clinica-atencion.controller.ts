@@ -35,7 +35,7 @@ export class ClinicaAtencionController {
 
   create = async (req: Request, res: Response): Promise<void> => {
     try {
-      const { nombre_clinica, direccion_clinica, logo_path, activo } = req.body;
+      const { nombre_clinica, direccion_clinica, logo_path, logo_path_recipe, activo } = req.body;
       if (!nombre_clinica || typeof nombre_clinica !== 'string' || !nombre_clinica.trim()) {
         res.status(400).json({ success: false, error: { message: 'nombre_clinica es requerido' } });
         return;
@@ -44,6 +44,7 @@ export class ClinicaAtencionController {
         nombre_clinica: nombre_clinica.trim(),
         direccion_clinica: direccion_clinica ?? null,
         logo_path: logo_path ?? null,
+        logo_path_recipe: logo_path_recipe ?? null,
         activo
       });
       res.status(201).json({ success: true, data: created } as ApiResponse<typeof created>);
@@ -65,10 +66,12 @@ export class ClinicaAtencionController {
       const nombre_clinica = body['nombre_clinica'];
       const direccion_clinica = body['direccion_clinica'];
       const logo_path = body['logo_path'];
+      const logo_path_recipe = body['logo_path_recipe'];
       const activo = body['activo'];
       if (nombre_clinica !== undefined) data['nombre_clinica'] = typeof nombre_clinica === 'string' ? nombre_clinica.trim() : nombre_clinica;
       if (direccion_clinica !== undefined) data['direccion_clinica'] = direccion_clinica;
       if (logo_path !== undefined) data['logo_path'] = logo_path;
+      if (logo_path_recipe !== undefined) data['logo_path_recipe'] = logo_path_recipe;
       if (activo !== undefined) data['activo'] = activo;
       const updated = await clinicaAtencionService.update(id, data as any);
       if (!updated) {

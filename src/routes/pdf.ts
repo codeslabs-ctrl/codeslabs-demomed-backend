@@ -17,6 +17,12 @@ router.use(verifyClinica);
  */
 router.get('/informe/:id', pdfController.generarPDFInforme.bind(pdfController));
 
+/**
+ * POST /api/v1/pdf/receta-medico
+ * Genera PDF de récipe o indicaciones (solo médico autenticado).
+ */
+router.post('/receta-medico', pdfController.generarPDFRecetaMedico.bind(pdfController));
+
 export default router;
 
 

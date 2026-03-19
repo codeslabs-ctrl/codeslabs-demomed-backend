@@ -363,9 +363,6 @@ export class PDFService {
                        `<img src="${clinicaConfig.logo}" alt="${clinicaConfig.nombre} Logo" class="logo">` :
                        `<div class="logo-fallback" style="width: 140px; height: 140px; background: ${clinicaConfig.color}; border-radius: 6px; margin: 0 0 3px 0; display: flex; align-items: center; justify-content: center; color: white; font-size: 42px; font-weight: bold; box-shadow: 0 1px 4px rgba(0,0,0,0.1);">${clinicaConfig.nombre.charAt(0)}</div>`
                      }
-              <div class="clinic-info">
-                ${clinicaConfig.descripcion}
-              </div>
             </div>
             <div class="header-content${controlDate ? ' header-content-with-date' : ''}">
               <div class="document-title">Informe Médico</div>
@@ -838,6 +835,7 @@ export class PDFService {
       // En runtime compilado, __dirname apunta a dist/services/, por eso subimos 2 niveles para llegar a dist/
       const distRoot = path.join(__dirname, '..', '..'); // dist/ cuando está compilado
       const projectRoot = path.join(distRoot, '..'); // raíz del proyecto
+      const cwd = process.cwd();
 
       const resolveFromRoot = (p: string, root: string): string => {
         if (path.isAbsolute(p)) return p;
@@ -848,16 +846,25 @@ export class PDFService {
       const candidates: string[] = [];
 
       const normalized = pathForResolve.replace(/\\/g, '/');
+      // distRoot = raíz del paquete backend (carpeta que contiene dist/ y opcionalmente assets/).
+      // projectRoot = carpeta padre (p. ej. .../backend); no confundir con la raíz del API.
       if (normalized.startsWith('./assets/')) {
-        // Buscar primero en dist/assets/ (cuando está compilado)
+        // Misma carpeta assets/ en el backend; luego dist/assets/ (build); luego padre legacy
+        candidates.push(resolveFromRoot(normalized.replace(/^\.\//, ''), distRoot));
         candidates.push(resolveFromRoot(normalized.replace('./assets/', './dist/assets/'), distRoot));
         candidates.push(resolveFromRoot(pathForResolve, projectRoot));
       } else if (normalized.startsWith('assets/')) {
+        // /assets/... en BD → assets/... respecto al backend (donde suele ir el PNG del PDF)
+        candidates.push(resolveFromRoot(pathForResolve, distRoot));
         candidates.push(resolveFromRoot('dist/' + pathForResolve, distRoot));
         candidates.push(resolveFromRoot(pathForResolve, projectRoot));
+        // Si el proceso se lanzó con cwd = raíz del API (común en deploy)
+        candidates.push(resolveFromRoot(pathForResolve, cwd));
+        candidates.push(resolveFromRoot(path.join('dist', pathForResolve), cwd));
       } else {
         candidates.push(resolveFromRoot(pathForResolve, distRoot));
         candidates.push(resolveFromRoot(pathForResolve, projectRoot));
+        candidates.push(resolveFromRoot(pathForResolve, cwd));
       }
 
       for (const candidate of candidates) {
@@ -938,5 +945,268 @@ export class PDFService {
     };
 
     return configuraciones[clinicaAlias] || configuraciones['default'];
+  }
+
+  /**
+   * Genera PDF de récipe médico o indicaciones (médico logueado).
+   */
+  async generarPDFRecetaMedico(params: {
+    medicoId: number;
+    tipo: 'recipe' | 'indicaciones';
+    contenido: string;
+    pacienteId?: number | null;
+    fechaEmision?: string | null;
+    piesClinicaIds?: number[];
+  }): Promise<Buffer> {
+    const { medicoId, tipo, contenido, pacienteId, fechaEmision, piesClinicaIds } = params;
+    const texto = (contenido || '').trim();
+    if (!texto) {
+      throw new Error('El contenido del récipe es obligatorio');
+    }
+
+    const client = await postgresPool.connect();
+    let medico: any;
+    let paciente: { nombres?: string; apellidos?: string; cedula?: string; edad?: number | string } | null = null;
+    try {
+      const r = await client.query(
+        `SELECT m.id, m.nombres, m.apellidos, m.cedula, m.email, m.telefono, m.sexo,
+                m.mpps, m.cm, m.titulacion, m.contacto_redes,
+                e.nombre_especialidad
+         FROM medicos m
+         LEFT JOIN especialidades e ON m.especialidad_id = e.id
+         WHERE m.id = $1`,
+        [medicoId]
+      );
+      if (r.rows.length === 0) throw new Error('Médico no encontrado');
+      medico = r.rows[0];
+
+      if (pacienteId) {
+        const pr = await client.query(
+          'SELECT nombres, apellidos, cedula, edad FROM pacientes WHERE id = $1',
+          [pacienteId]
+        );
+        if (pr.rows.length) paciente = pr.rows[0];
+      }
+    } finally {
+      client.release();
+    }
+
+    let firmaBase64 = '';
+    let selloBase64 = '';
+    try {
+      firmaBase64 = await this.firmaService.obtenerFirmaBase64(medicoId);
+    } catch {
+      /* sin firma */
+    }
+    try {
+      selloBase64 = await this.firmaService.obtenerSelloBase64(medicoId);
+    } catch {
+      /* */
+    }
+
+    const tituloDoc = tipo === 'indicaciones' ? 'Indicaciones' : 'Récipe';
+    const tituloMed = medico.sexo === 'Femenino' ? 'Dra.' : 'Dr.';
+    const nombreCompleto = `${medico.nombres || ''} ${medico.apellidos || ''}`.trim();
+    const fechaStr = fechaEmision
+      ? new Date(fechaEmision).toLocaleDateString('es-VE', { year: 'numeric', month: 'long', day: 'numeric' })
+      : new Date().toLocaleDateString('es-VE', { year: 'numeric', month: 'long', day: 'numeric' });
+
+    const lineasTitulacion = medico.titulacion ? String(medico.titulacion).split(/\n/).map((l: string) => l.trim()).filter(Boolean) : [];
+
+    // Logo al lado del médico: misma lógica que el informe (LOGO_PATH / CLINICA_ALIAS), o logo de la 1.ª clínica elegida en el pie
+    const clinicaAliasRec = process.env['CLINICA_ALIAS'] || 'default';
+    const clinicaBaseRec = await this.obtenerConfiguracionClinica(clinicaAliasRec);
+    let nombreLogoHeader = clinicaBaseRec.nombre;
+    let logoPathHeader: string = clinicaBaseRec.logoPath || '';
+    /** receta-logo-recipe = archivo ya dimensionado (logo_path_recipe); receta-logo-fit = logo genérico / env */
+    let headerLogoClass = 'receta-logo-fit';
+
+    let idPieHead = (piesClinicaIds || []).map((x) => Number(x)).find((x) => Number.isFinite(x) && x > 0);
+    // Sin clínicas marcadas en el pie, el PDF no enviaba pies_clinica_ids → nunca se leía logo_path_recipe del encabezado
+    if (!idPieHead) {
+      const fallbackId = await clinicaAtencionService.getFirstActiveId();
+      if (fallbackId) idPieHead = fallbackId;
+    }
+    if (idPieHead) {
+      const ch = await clinicaAtencionService.getById(idPieHead);
+      if (ch) {
+        const pathRecipe = (ch.logo_path_recipe && String(ch.logo_path_recipe).trim()) || '';
+        const pathGeneral = (ch.logo_path && String(ch.logo_path).trim()) || '';
+        if (pathRecipe) {
+          logoPathHeader = pathRecipe;
+          nombreLogoHeader = ch.nombre_clinica;
+          headerLogoClass = 'receta-logo-recipe';
+        } else if (pathGeneral) {
+          logoPathHeader = pathGeneral;
+          nombreLogoHeader = ch.nombre_clinica;
+          headerLogoClass = 'receta-logo-fit';
+        }
+      }
+    }
+
+    const headerLogoB64 = logoPathHeader ? await this.obtenerLogoBase64(logoPathHeader) : '';
+    const colorFb = clinicaBaseRec.color || '#64748b';
+    const inicialLogo = (nombreLogoHeader || 'C').charAt(0);
+    const logoHeaderHtml = headerLogoB64
+      ? `<img src="${headerLogoB64}" alt="${this.escapeHtmlPdf(nombreLogoHeader)}" class="receta-logo-img ${headerLogoClass}" />`
+      : `<div class="receta-logo-fallback" style="background:${colorFb}">${this.escapeHtmlPdf(inicialLogo)}</div>`;
+
+    const htmlContenido = texto
+      .split(/\n/)
+      .map((line) => this.escapeHtmlPdf(line))
+      .join('<br/>');
+
+    let bloquePaciente = '';
+    if (paciente) {
+      const pn = `${paciente.nombres || ''} ${paciente.apellidos || ''}`.trim();
+      const partes: string[] = [];
+      if (pn) partes.push(this.escapeHtmlPdf(pn));
+      if (paciente.cedula) partes.push(`Cédula: ${this.escapeHtmlPdf(paciente.cedula)}`);
+      if (paciente.edad != null && paciente.edad !== '') partes.push(`Edad: ${this.escapeHtmlPdf(String(paciente.edad))}`);
+      if (partes.length) {
+        bloquePaciente = `<div class="receta-paciente"><strong>Paciente:</strong> ${partes.join(' · ')}</div>`;
+      }
+    }
+
+    const piesHtml: string[] = [];
+    const ids = (piesClinicaIds || []).slice(0, 2);
+    for (const cid of ids) {
+      const cap = await clinicaAtencionService.getById(cid);
+      if (!cap) continue;
+      const logoB64 = cap.logo_path ? await this.obtenerLogoBase64(cap.logo_path) : '';
+      const img = logoB64
+        ? `<img src="${logoB64}" alt="" class="pie-logo" />`
+        : '';
+      piesHtml.push(`
+        <div class="pie-col">
+          ${img}
+          <div class="pie-nombre">${this.escapeHtmlPdf(cap.nombre_clinica)}</div>
+          ${cap.direccion_clinica ? `<div class="pie-dir">${this.escapeHtmlPdf(cap.direccion_clinica)}</div>` : ''}
+        </div>`);
+    }
+    const footerRow = piesHtml.length
+      ? `<div class="receta-footer">${piesHtml.join('')}</div>`
+      : '';
+
+    const tieneFirmaSello = !!(firmaBase64 || selloBase64);
+    const bloqueFirmaOverlay =
+      tieneFirmaSello
+        ? `<div class="receta-firma receta-firma--overlay">
+    <div class="firma-imagenes">
+      ${firmaBase64 ? `<img src="${firmaBase64}" alt="" class="firma-img"/>` : ''}
+      ${selloBase64 ? `<img src="${selloBase64}" alt="" class="sello-img"/>` : ''}
+    </div>
+  </div>`
+        : '';
+
+    const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"/>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11pt; color: #1e293b; margin: 0; padding: 16mm 14mm; }
+  .receta-header { border-bottom: 1px solid #cbd5e1; padding-bottom: 10px; margin-bottom: 12px; }
+  .receta-header-row { display: flex; flex-direction: row; align-items: flex-start; gap: 12px; }
+  .receta-logo-cell { flex-shrink: 0; display: flex; align-items: flex-start; justify-content: flex-start; }
+  .receta-header-main { flex: 1; min-width: 0; }
+  /* logo_path_recipe: imagen ya preparada; no reescalamos */
+  .receta-logo-recipe { display: block; width: auto; height: auto; max-width: 100%; }
+  /* logo_path o LOGO_PATH: límite suave si el archivo es muy grande */
+  .receta-logo-fit { display: block; max-width: 120px; max-height: 72px; width: auto; height: auto; object-fit: contain; }
+  .receta-logo-fallback { width: 56px; height: 56px; min-width: 56px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 22px; font-weight: 700; flex-shrink: 0; }
+  .receta-tipo { font-size: 14pt; font-style: italic; font-weight: 700; color: #0f172a; margin-bottom: 6px; }
+  .receta-med-nombre { font-size: 11pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; }
+  .receta-titulacion { font-size: 9pt; margin-top: 4px; color: #334155; line-height: 1.35; }
+  .receta-meta { font-size: 8.5pt; color: #475569; margin-top: 6px; line-height: 1.4; }
+  .receta-fecha { font-size: 9pt; color: #64748b; margin: 10px 0; }
+  .receta-body { min-height: 120mm; position: relative; padding: 8px 0; }
+  .receta-body-inner { position: relative; z-index: 1; white-space: normal; line-height: 1.5; }
+  .receta-watermark { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; opacity: 0.06; font-size: 72px; font-weight: 800; color: #64748b; pointer-events: none; z-index: 0; }
+  .receta-paciente { font-size: 10pt; margin-bottom: 10px; padding: 8px; background: #f8fafc; border-radius: 6px; }
+  .receta-firma { margin-top: 14px; padding-top: 10px; border-top: 1px solid #e2e8f0; break-inside: avoid; }
+  .receta-firma .firma-imagenes { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .receta-firma .firma-img, .receta-firma .sello-img { max-width: 120px; max-height: 60px; object-fit: contain; }
+  .receta-footer { display: flex; gap: 12px; margin-top: 14px; padding-top: 10px; border-top: 1px solid #e2e8f0; font-size: 7.5pt; color: #475569; }
+  .pie-col { flex: 1; min-width: 0; }
+  .pie-logo { max-height: 40px; max-width: 140px; object-fit: contain; display: block; margin-bottom: 4px; }
+  .pie-nombre { font-weight: 600; }
+  .pie-dir { line-height: 1.3; margin-top: 2px; }
+</style></head><body>
+  <div class="receta-header">
+    <div class="receta-header-row">
+      <div class="receta-logo-cell">${logoHeaderHtml}</div>
+      <div class="receta-header-main">
+        <div class="receta-tipo">${this.escapeHtmlPdf(tituloDoc)}</div>
+        <div class="receta-med-nombre">${this.escapeHtmlPdf(tituloMed)} ${this.escapeHtmlPdf(nombreCompleto)}</div>
+        ${lineasTitulacion.map((t: string) => `<div class="receta-titulacion">${this.escapeHtmlPdf(t)}</div>`).join('')}
+        ${!lineasTitulacion.length && medico.nombre_especialidad ? `<div class="receta-titulacion">${this.escapeHtmlPdf(medico.nombre_especialidad)}</div>` : ''}
+        <div class="receta-meta">
+          ${medico.cedula ? `RIF / Cédula: ${this.escapeHtmlPdf(medico.cedula)} · ` : ''}
+          ${medico.email ? `${this.escapeHtmlPdf(medico.email)} · ` : ''}
+          ${medico.telefono ? `${this.escapeHtmlPdf(medico.telefono)}` : ''}
+          ${medico.contacto_redes ? `<br/>${this.escapeHtmlPdf(String(medico.contacto_redes))}` : ''}
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="receta-fecha">Fecha: ${this.escapeHtmlPdf(fechaStr)}</div>
+  ${bloquePaciente}
+  <div class="receta-body">
+    <div class="receta-watermark">${tituloMed.charAt(0)}</div>
+    <div class="receta-body-inner${tieneFirmaSello ? ' receta-body-inner--con-firma' : ''}">${htmlContenido}</div>
+    ${bloqueFirmaOverlay}
+  </div>
+  ${footerRow}
+</body></html>`;
+
+    return this.generarPdfBufferDesdeHtml(html);
+  }
+
+  /** Puppeteer: HTML → PDF buffer (reutilizable). */
+  private async generarPdfBufferDesdeHtml(html: string): Promise<Buffer> {
+    let browser: any = null;
+    try {
+      browser = await puppeteer.launch({
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--disable-software-rasterizer',
+          '--disable-extensions',
+          '--disable-web-security',
+          '--disable-features=IsolateOrigins,site-per-process'
+        ],
+        timeout: 60000
+      });
+      const page = await browser.newPage();
+      page.setDefaultNavigationTimeout(60000);
+      page.setDefaultTimeout(60000);
+      await page.setContent(html, { waitUntil: 'load', timeout: 60000 });
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const pdf = await Promise.race([
+        page.pdf({
+          format: 'A4',
+          printBackground: true,
+          margin: { top: '12mm', right: '12mm', bottom: '12mm', left: '12mm' },
+          preferCSSPageSize: false
+        }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout generando PDF')), 60000))
+      ]) as Buffer;
+      const pdfBuffer = Buffer.from(pdf);
+      await page.close();
+      await browser.close();
+      browser = null;
+      return pdfBuffer;
+    } catch (e: any) {
+      if (browser) {
+        try {
+          await browser.close();
+        } catch {
+          /* */
+        }
+      }
+      throw e;
+    }
   }
 }

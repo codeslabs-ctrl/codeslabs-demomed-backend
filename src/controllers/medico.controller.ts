@@ -99,10 +99,10 @@ export class MedicoController {
     }
   }
 
-  async createMedico(req: Request<{}, ApiResponse, { nombres: string; apellidos: string; cedula?: string; email: string; telefono: string; especialidad_id: number; sexo?: string; mpps?: string; cm?: string }>, res: Response<ApiResponse>): Promise<void> {
+  async createMedico(req: Request<{}, ApiResponse, { nombres: string; apellidos: string; cedula?: string; email: string; telefono: string; especialidad_id: number; sexo?: string; mpps?: string; cm?: string; titulacion?: string; contacto_redes?: string }>, res: Response<ApiResponse>): Promise<void> {
     try {
       console.log('📥 Datos recibidos en createMedico:', req.body);
-      const { nombres, apellidos, cedula, email, telefono, especialidad_id, sexo, mpps, cm } = req.body;
+      const { nombres, apellidos, cedula, email, telefono, especialidad_id, sexo, mpps, cm, titulacion, contacto_redes } = req.body;
 
       console.log('🔍 Validando campos:');
       console.log('  - nombres:', nombres, typeof nombres);
@@ -174,10 +174,10 @@ export class MedicoController {
 
         // Insertar en medicos
         const medicoResult = await client.query(
-          `INSERT INTO medicos (nombres, apellidos, cedula, email, telefono, especialidad_id, sexo, mpps, cm)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          `INSERT INTO medicos (nombres, apellidos, cedula, email, telefono, especialidad_id, sexo, mpps, cm, titulacion, contacto_redes)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
            RETURNING *`,
-          [nombres, apellidos, cedula || null, email, telefono, especialidad_id, (sexo === 'Femenino' || sexo === 'Masculino' ? sexo : null), mpps || null, cm || null]
+          [nombres, apellidos, cedula || null, email, telefono, especialidad_id, (sexo === 'Femenino' || sexo === 'Masculino' ? sexo : null), mpps || null, cm || null, titulacion || null, contacto_redes || null]
         );
 
         const newMedico = medicoResult.rows[0];
@@ -314,7 +314,7 @@ export class MedicoController {
     }
   }
 
-  async updateMedico(req: Request<{ id: string }, ApiResponse, { nombres?: string; apellidos?: string; cedula?: string; email?: string; telefono?: string; especialidad_id?: number; sexo?: string; mpps?: string; cm?: string }>, res: Response<ApiResponse>): Promise<void> {
+  async updateMedico(req: Request<{ id: string }, ApiResponse, { nombres?: string; apellidos?: string; cedula?: string; email?: string; telefono?: string; especialidad_id?: number; sexo?: string; mpps?: string; cm?: string; titulacion?: string; contacto_redes?: string }>, res: Response<ApiResponse>): Promise<void> {
     try {
       const { id } = req.params;
       const updateData = req.body;
@@ -413,6 +413,16 @@ export class MedicoController {
         if (updateData.cm !== undefined) {
           setClauses.push(`cm = $${paramIndex}`);
           values.push(updateData.cm);
+          paramIndex++;
+        }
+        if (updateData.titulacion !== undefined) {
+          setClauses.push(`titulacion = $${paramIndex}`);
+          values.push(updateData.titulacion);
+          paramIndex++;
+        }
+        if (updateData.contacto_redes !== undefined) {
+          setClauses.push(`contacto_redes = $${paramIndex}`);
+          values.push(updateData.contacto_redes);
           paramIndex++;
         }
 
