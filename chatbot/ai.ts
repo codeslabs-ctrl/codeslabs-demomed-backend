@@ -56,7 +56,7 @@ export interface ChatOptions {
 const CHAT_TOOLS = [
   { type: "function" as const, function: { name: "buscar_paciente", description: "Busca un paciente por nombre o cédula en el sistema", parameters: { type: "object", properties: { query: { type: "string", description: "Nombre completo o número de cédula del paciente" } }, required: ["query"] } } },
   { type: "function" as const, function: { name: "nuevo_paciente", description: "Ingresar los datos de un nuevo paciente en el sistema. Cédula debe ser: V12345678, E1234567, J12345678, P12345678 o G12345678.", parameters: { type: "object", properties: { nombres: { type: "string" }, apellidos: { type: "string" }, cedula: { type: "string", description: "Formato: V12345678, E1234567, J12345678, P12345678, G12345678" }, edad: { type: "number" }, sexo: { type: "string" }, email: { type: "string" }, telefono: { type: "string" } }, required: ["nombres", "apellidos", "cedula", "edad", "sexo", "email", "telefono"] } } },
-  { type: "function" as const, function: { name: "actualizar_paciente", description: "Actualiza los datos personales o médicos de un paciente", parameters: { type: "object", properties: { paciente_id: { type: "number" }, datos: { type: "object" } }, required: ["paciente_id", "datos"] } } },
+  { type: "function" as const, function: { name: "actualizar_paciente", description: "Actualiza los datos personales o médicos de un paciente", parameters: { type: "object", properties: { paciente_id: { type: "number" }, datos: { type: "object", description: "Campos a fusionar con el paciente (objeto JSON flexible; p.ej. email, telefono, notas).", properties: {} } }, required: ["paciente_id", "datos"] } } },
   { type: "function" as const, function: { name: "agendar_consulta", description: "Agenda una cita médica. Sigue este flujo estrictamente: (1) Captura: Fecha (acepta relativas: mañana, el lunes, próximo viernes), Hora, Motivo, Tipo de consulta. Opcional: si hay varias clínicas, usa listar_clinicas y pasa clinica_atencion_id según elección del usuario. (2) Tipo de consulta OBLIGATORIO: Antes de agendar llama a buscar_consultas (tipo 'paciente') para ese paciente. Si ya tiene consultas → solo 'seguimiento' o 'control'. Si no tiene consultas → solo 'primera_vez'. (3) Confirmación: Presenta un resumen (paciente, fecha, hora, motivo, tipo, clínica si aplica) y pregunta si confirma. (4) Ejecución: Solo cuando el usuario diga sí/confirmo, invoca esta herramienta con el tipo correcto y clinica_atencion_id si aplica.", parameters: { type: "object", properties: { paciente_id: { type: "number" }, paciente_nombre: { type: "string" }, fecha: { type: "string", description: "Expresión de tiempo del usuario tal cual (ej: 'mañana', '2026-03-15', 'este viernes'). Pasar el texto sin transformar; el backend resuelve la conversión. No pedir confirmación si el usuario ya mencionó un tiempo." }, hora: { type: "string" }, motivo: { type: "string" }, tipo_consulta: { type: "string", enum: ["primera_vez", "seguimiento", "control"], description: "primera_vez SOLO si el paciente no tiene consultas agendadas; si ya tiene, usar seguimiento o control." }, clinica_atencion_id: { type: "number", description: "ID de la clínica de atención. Obtener con listar_clinicas si hay varias y el usuario elige." } }, required: ["fecha", "hora", "motivo", "tipo_consulta"] } } },
   { type: "function" as const, function: { name: "listar_clinicas", description: "Lista las clínicas de atención disponibles (tabla clinica_atencion_pacientes). Usar antes de agendar cuando el usuario no haya dicho en qué clínica o cuando quiera ver las opciones para elegir.", parameters: { type: "object", properties: {} } } },
   { type: "function" as const, function: { name: "buscar_consultas", description: "Lista las consultas: 'hoy' = del día; 'proximos_dias' = próximos 2 días; 'paciente' = de un paciente (indica paciente_nombre o paciente_id). Puedes usar solo el nombre del paciente o la cédula, no hace falta el ID.", parameters: { type: "object", properties: { tipo: { type: "string", enum: ["hoy", "proximos_dias", "paciente"], description: "hoy, proximos_dias o paciente" }, paciente_id: { type: "number", description: "ID del paciente (opcional si envías paciente_nombre)" }, paciente_nombre: { type: "string", description: "Nombre completo o cédula del paciente para buscar sus consultas. Usar cuando el usuario diga el nombre (ej. Veronica Calderon) sin pedir el ID." } }, required: ["tipo"] } } },
@@ -142,6 +142,20 @@ function parseContent(content: string): { reply: string; action?: string; action
   return { reply, action, actionData };
 }
 
+/** Log cuerpo de error del proveedor (diagnóstico en PM2 / consola). No exponer al cliente. */
+async function logAiHttpError(tag: string, res: Response, extra?: string): Promise<void> {
+  let body = "";
+  try {
+    body = (await res.text()).slice(0, 4000);
+  } catch {
+    body = "(no se pudo leer el cuerpo)";
+  }
+  const hint = extra ? ` ${extra}` : "";
+  if (typeof console !== "undefined" && console.error) {
+    console.error(`[chatbot-ai] ${tag} HTTP ${res.status}${hint}: ${body}`);
+  }
+}
+
 /** OpenAI Chat Completions */
 async function chatOpenAI(messages: ChatMessage[]): Promise<{ reply: string; action?: string; actionData?: string }> {
   const body = {
@@ -159,6 +173,7 @@ async function chatOpenAI(messages: ChatMessage[]): Promise<{ reply: string; act
     body: JSON.stringify(body),
   });
   if (!res.ok) {
+    await logAiHttpError("openai-chat", res);
     return { reply: "No pude conectar con el asistente. Inténtalo de nuevo en un momento." };
   }
   const data = await res.json();
@@ -189,6 +204,7 @@ async function chatClaude(messages: ChatMessage[]): Promise<{ reply: string; act
     body: JSON.stringify(body),
   });
   if (!res.ok) {
+    await logAiHttpError("claude-chat", res);
     return { reply: "No pude conectar con el asistente. Inténtalo de nuevo en un momento." };
   }
   const data = await res.json();
@@ -220,6 +236,7 @@ async function chatGemini(messages: ChatMessage[]): Promise<{ reply: string; act
     body: JSON.stringify(body),
   });
   if (!res.ok) {
+    await logAiHttpError("gemini-chat", res);
     return { reply: "No pude conectar con el asistente. Inténtalo de nuevo en un momento." };
   }
   const data = await res.json();
@@ -240,7 +257,10 @@ async function chatWithToolsOpenAI(messages: ChatMessage[], executeTool: (name: 
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_API_KEY}` },
       body: JSON.stringify({ model: OPENAI_CHAT_MODEL, messages: apiMessages, temperature: 0.4, max_tokens: 800, tools: CHAT_TOOLS }),
     });
-    if (!res.ok) return { reply: "No pude conectar con el asistente. Inténtalo de nuevo." };
+    if (!res.ok) {
+      await logAiHttpError("openai-tools", res, `round=${round}`);
+      return { reply: "No pude conectar con el asistente. Inténtalo de nuevo." };
+    }
     const data = await res.json();
     const choice = data?.choices?.[0];
     const finishReason = choice?.finish_reason ?? "";
@@ -276,7 +296,10 @@ async function chatWithToolsClaude(messages: ChatMessage[], executeTool: (name: 
       headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
       body: JSON.stringify({ model: ANTHROPIC_CHAT_MODEL, max_tokens: 800, system: getToolUseSystemPrompt(), messages: apiMessages, tools: toolsClaude }),
     });
-    if (!res.ok) return { reply: "No pude conectar con el asistente. Inténtalo de nuevo." };
+    if (!res.ok) {
+      await logAiHttpError("claude-tools", res, `round=${round} model=${ANTHROPIC_CHAT_MODEL}`);
+      return { reply: "No pude conectar con el asistente. Inténtalo de nuevo." };
+    }
     const data = await res.json();
     const content = data?.content ?? [];
     const toolUseBlocks = content.filter((p: { type: string }) => p.type === "tool_use");
@@ -308,7 +331,10 @@ async function chatWithToolsGemini(messages: ChatMessage[], executeTool: (name: 
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ contents: [...history], systemInstruction: { parts: [{ text: getToolUseSystemPrompt() }] }, tools: [{ functionDeclarations: decls }], generationConfig: { temperature: 0.4, maxOutputTokens: 800 } }),
     });
-    if (!res.ok) return { reply: "No pude conectar con el asistente. Inténtalo de nuevo." };
+    if (!res.ok) {
+      await logAiHttpError("gemini-tools", res, `round=${round}`);
+      return { reply: "No pude conectar con el asistente. Inténtalo de nuevo." };
+    }
     const data = await res.json();
     const parts = data?.candidates?.[0]?.content?.parts ?? [];
     const fnCall = parts.find((p: { functionCall?: unknown }) => p.functionCall);
