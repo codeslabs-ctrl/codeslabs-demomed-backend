@@ -58,7 +58,7 @@ const CHAT_TOOLS = [
   { type: "function" as const, function: { name: "nuevo_paciente", description: "Ingresar los datos de un nuevo paciente en el sistema. Cédula debe ser: V12345678, E1234567, J12345678, P12345678 o G12345678.", parameters: { type: "object", properties: { nombres: { type: "string" }, apellidos: { type: "string" }, cedula: { type: "string", description: "Formato: V12345678, E1234567, J12345678, P12345678, G12345678" }, edad: { type: "number" }, sexo: { type: "string" }, email: { type: "string" }, telefono: { type: "string" } }, required: ["nombres", "apellidos", "cedula", "edad", "sexo", "email", "telefono"] } } },
   { type: "function" as const, function: { name: "actualizar_paciente", description: "Actualiza los datos personales o médicos de un paciente", parameters: { type: "object", properties: { paciente_id: { type: "number" }, datos: { type: "object", description: "Campos a fusionar con el paciente (objeto JSON flexible; p.ej. email, telefono, notas).", properties: {} } }, required: ["paciente_id", "datos"] } } },
   { type: "function" as const, function: { name: "agendar_consulta", description: "Agenda una cita médica. Sigue este flujo estrictamente: (1) Captura: Fecha (acepta relativas: mañana, el lunes, próximo viernes), Hora, Motivo, Tipo de consulta. Opcional: si hay varias clínicas, usa listar_clinicas y pasa clinica_atencion_id según elección del usuario. (2) Tipo de consulta OBLIGATORIO: Antes de agendar llama a buscar_consultas (tipo 'paciente') para ese paciente. Si ya tiene consultas → solo 'seguimiento' o 'control'. Si no tiene consultas → solo 'primera_vez'. (3) Confirmación: Presenta un resumen (paciente, fecha, hora, motivo, tipo, clínica si aplica) y pregunta si confirma. (4) Ejecución: Solo cuando el usuario diga sí/confirmo, invoca esta herramienta con el tipo correcto y clinica_atencion_id si aplica.", parameters: { type: "object", properties: { paciente_id: { type: "number" }, paciente_nombre: { type: "string" }, fecha: { type: "string", description: "Expresión de tiempo del usuario tal cual (ej: 'mañana', '2026-03-15', 'este viernes'). Pasar el texto sin transformar; el backend resuelve la conversión. No pedir confirmación si el usuario ya mencionó un tiempo." }, hora: { type: "string" }, motivo: { type: "string" }, tipo_consulta: { type: "string", enum: ["primera_vez", "seguimiento", "control"], description: "primera_vez SOLO si el paciente no tiene consultas agendadas; si ya tiene, usar seguimiento o control." }, clinica_atencion_id: { type: "number", description: "ID de la clínica de atención. Obtener con listar_clinicas si hay varias y el usuario elige." } }, required: ["fecha", "hora", "motivo", "tipo_consulta"] } } },
-  { type: "function" as const, function: { name: "listar_clinicas", description: "Lista las clínicas de atención disponibles (tabla clinica_atencion_pacientes). Usar antes de agendar cuando el usuario no haya dicho en qué clínica o cuando quiera ver las opciones para elegir.", parameters: { type: "object", properties: {} } } },
+  { type: "function" as const, function: { name: "listar_clinicas", description: "Lista las clínicas de atención disponibles (tabla clinica_atencion_pacientes). Usar antes de agendar cuando el usuario no haya dicho en qué clínica o cuando quiera ver las opciones para elegir.", parameters: { type: "object", properties: { omitir: { type: "string", description: "No enviar; parámetro técnico. Llamar la herramienta sin argumentos o con objeto vacío." } } } } },
   { type: "function" as const, function: { name: "buscar_consultas", description: "Lista las consultas: 'hoy' = del día; 'proximos_dias' = próximos 2 días; 'paciente' = de un paciente (indica paciente_nombre o paciente_id). Puedes usar solo el nombre del paciente o la cédula, no hace falta el ID.", parameters: { type: "object", properties: { tipo: { type: "string", enum: ["hoy", "proximos_dias", "paciente"], description: "hoy, proximos_dias o paciente" }, paciente_id: { type: "number", description: "ID del paciente (opcional si envías paciente_nombre)" }, paciente_nombre: { type: "string", description: "Nombre completo o cédula del paciente para buscar sus consultas. Usar cuando el usuario diga el nombre (ej. Veronica Calderon) sin pedir el ID." } }, required: ["tipo"] } } },
   { type: "function" as const, function: { name: "obtener_historial", description: "Obtiene el historial médico (controles) del paciente: fechas, motivo de consulta, diagnóstico, tratamiento. Necesario para redactar el informe en prosa narrativa. Puedes indicar paciente_id o paciente_nombre. Si el resultado incluye historial_incompleto: true y mensaje_recordatorio, y el usuario quiere generar un informe: muestra solo el texto de mensaje_recordatorio y espera la respuesta. No pidas tipo ni contenido en el mismo mensaje. Si el usuario elige ir a la aplicación a completar la historia, usa open_section (path historia-medica). Si elige generar el informe con su contenido: entonces pide tipo y contenido, y añade esta línea: «El informe se generará con el texto que me indiques; no incluirá datos de la consulta reciente porque no están completos en la historia.»", parameters: { type: "object", properties: { paciente_id: { type: "number" }, paciente_nombre: { type: "string", description: "Nombre completo o cédula del paciente" }, limite: { type: "number", description: "Máximo de controles a devolver (por defecto 10, máx. 50)" } }, required: [] } } },
   { type: "function" as const, function: { name: "get_patient_data", description: "Obtiene los datos completos de un paciente (nombre, cédula, edad, sexo, email, teléfono). Necesario para redactar la introducción del informe narrativo.", parameters: { type: "object", properties: { paciente_id: { type: "number" }, paciente_nombre: { type: "string" } }, required: [] } } },
@@ -284,21 +284,30 @@ async function chatWithToolsOpenAI(messages: ChatMessage[], executeTool: (name: 
   return { reply: "Se alcanzó el límite de pasos. Inténtalo de nuevo." };
 }
 
-/** Loop Tool Use para Anthropic Claude. */
-async function chatWithToolsClaude(messages: ChatMessage[], executeTool: (name: string, args: Record<string, unknown>) => Promise<unknown>): Promise<{ reply: string; navigateTo?: string }> {
+/** Loop Tool Use para Anthropic Claude. `null` = error HTTP al proveedor (el caller puede hacer fallback sin tools). */
+async function chatWithToolsClaude(messages: ChatMessage[], executeTool: (name: string, args: Record<string, unknown>) => Promise<unknown>): Promise<{ reply: string; navigateTo?: string } | null> {
   const toolsClaude = CHAT_TOOLS.map((t) => ({ name: t.function.name, description: t.function.description, input_schema: t.function.parameters }));
   type ClaudeMsg = { role: "user" | "assistant"; content: string | Array<{ type: string; text?: string; id?: string; name?: string; input?: unknown }> };
   let apiMessages: ClaudeMsg[] = messages.map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
   const maxRounds = 8;
+  /** max_tokens más alto: tool_use + varios bloques consumen más que solo texto. */
+  const maxTokensTools = 4096;
   for (let round = 0; round < maxRounds; round++) {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: ANTHROPIC_CHAT_MODEL, max_tokens: 800, system: getToolUseSystemPrompt(), messages: apiMessages, tools: toolsClaude }),
+      body: JSON.stringify({
+        model: ANTHROPIC_CHAT_MODEL,
+        max_tokens: maxTokensTools,
+        system: getToolUseSystemPrompt(),
+        messages: apiMessages,
+        tools: toolsClaude,
+        tool_choice: { type: "auto" },
+      }),
     });
     if (!res.ok) {
       await logAiHttpError("claude-tools", res, `round=${round} model=${ANTHROPIC_CHAT_MODEL}`);
-      return { reply: "No pude conectar con el asistente. Inténtalo de nuevo." };
+      return null;
     }
     const data = await res.json();
     const content = data?.content ?? [];
@@ -361,7 +370,12 @@ export async function chat(
   if (executeTool) {
     if (AI_PROVIDER === "claude") {
       if (!ANTHROPIC_API_KEY) return { reply: "El asistente no está configurado. Contacta al administrador." };
-      return chatWithToolsClaude(messages, executeTool);
+      const toolReply = await chatWithToolsClaude(messages, executeTool);
+      if (toolReply !== null) return toolReply;
+      if (typeof console !== "undefined" && console.warn) {
+        console.warn("[chatbot-ai] Claude tool-use rechazado por la API; usando chat sin tools (legacy). Revisa logs [chatbot-ai] claude-tools arriba.");
+      }
+      return chatClaude(messages);
     }
     if (AI_PROVIDER === "gemini") {
       if (!GEMINI_API_KEY) return { reply: "El asistente no está configurado. Contacta al administrador." };
