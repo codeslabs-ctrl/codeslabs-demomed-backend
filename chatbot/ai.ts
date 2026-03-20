@@ -330,8 +330,8 @@ async function chatWithToolsClaude(messages: ChatMessage[], executeTool: (name: 
   return { reply: "Se alcanzó el límite de pasos. Inténtalo de nuevo." };
 }
 
-/** Loop Tool Use para Google Gemini. */
-async function chatWithToolsGemini(messages: ChatMessage[], executeTool: (name: string, args: Record<string, unknown>) => Promise<unknown>): Promise<{ reply: string; navigateTo?: string }> {
+/** Loop Tool Use para Google Gemini. `null` = error HTTP (p. ej. 403 región/billing); caller puede usar chat sin tools. */
+async function chatWithToolsGemini(messages: ChatMessage[], executeTool: (name: string, args: Record<string, unknown>) => Promise<unknown>): Promise<{ reply: string; navigateTo?: string } | null> {
   const decls = CHAT_TOOLS.map((t) => ({ name: t.function.name, description: t.function.description, parameters: t.function.parameters }));
   const history = messages.map((m) => ({ role: m.role === "user" ? "user" : "model", parts: [{ text: m.content }] }));
   const maxRounds = 8;
@@ -342,7 +342,7 @@ async function chatWithToolsGemini(messages: ChatMessage[], executeTool: (name: 
     });
     if (!res.ok) {
       await logAiHttpError("gemini-tools", res, `round=${round}`);
-      return { reply: "No pude conectar con el asistente. Inténtalo de nuevo." };
+      return null;
     }
     const data = await res.json();
     const parts = data?.candidates?.[0]?.content?.parts ?? [];
@@ -379,7 +379,12 @@ export async function chat(
     }
     if (AI_PROVIDER === "gemini") {
       if (!GEMINI_API_KEY) return { reply: "El asistente no está configurado. Contacta al administrador." };
-      return chatWithToolsGemini(messages, executeTool);
+      const gemTool = await chatWithToolsGemini(messages, executeTool);
+      if (gemTool !== null) return gemTool;
+      if (typeof console !== "undefined" && console.warn) {
+        console.warn("[chatbot-ai] Gemini tool-use falló (p. ej. 403 región/IP o cuota); intentando chat sin tools. Si sigue fallando, usa AI_PROVIDER=claude o revisa la clave/proyecto Gemini.");
+      }
+      return chatGemini(messages);
     }
     if (!OPENAI_API_KEY) return { reply: "El asistente no está configurado. Contacta al administrador." };
     return chatWithToolsOpenAI(messages, executeTool);

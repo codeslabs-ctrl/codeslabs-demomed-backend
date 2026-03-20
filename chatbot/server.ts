@@ -872,7 +872,9 @@ function requestPathname(req: Request): string {
 
 /** POST al chat: rutas según ProxyPass / Apache (variantes comunes). */
 function isPostMessagePath(pathname: string): boolean {
-  const p = pathname.replace(/\/+$/, "") || "/";
+  // Doble barra (p. ej. //message) aunque requestPathname falle en alguna versión desplegada
+  let p = pathname.replace(/\/{2,}/g, "/");
+  p = p.replace(/\/+$/, "") || "/";
   if (/^\/(?:message|api\/chat\/message|chat\/message)$/.test(p)) return true;
   if (p.endsWith("/api/chat/message")) return true;
   return false;
