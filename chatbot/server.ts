@@ -281,12 +281,16 @@ function isCedulaFormatValid(cedula: string): boolean {
   return /^V\d{8}$/.test(c) || /^E\d{7}$/.test(c) || /^[JPG]\d{8}$/.test(c);
 }
 
-/** Indica si el mensaje del usuario confirma que quiere antecedentes o agendar (no solo datos de contacto). */
+/** Indica si el mensaje del usuario confirma que quiere antecedentes o agendar (no solo datos de contacto). Solo para agendar_consulta. */
 function userConfirmedAntecedentesOrAgendar(lastUserMessage: string): boolean {
   const t = lastUserMessage.trim().toLowerCase();
   if (!t) return false;
   if (/^(sí|si|yes)$/.test(t)) return true;
-  if (/\b(antecedentes|agendar|agenda|consulta|confirmo|confrimo|quiero\s+añadir|añadir\s+antecedentes|historia\s+cl[ií]nica)\b/i.test(t)) return true;
+  if (
+    /\b(antecedentes|agendar|agenda|consulta|confirmo|confrimo|quiero\s+añadir|añadir\s+antecedentes|historia\s+cl[ií]nica|historia\s+m[eé]dica|lleva(me|te|nos)?\b|llevame|ll[eé]vame|abre|abrir|ir\s+a\s+la\s+aplicaci[oó]n|completar\s+la\s+historia)\b/i.test(t)
+  ) {
+    return true;
+  }
   if (/^(sí|si)\s+(confirmo|confrimo)$/i.test(t)) return true;
   return false;
 }
@@ -532,9 +536,9 @@ async function runTool(token: string, name: string, args: Record<string, unknown
         return r.success ? { success: true, data: r.data, message: "Informe creado." } : { success: false, error: r.error };
       }
       case "open_section": {
-        if (lastUserMessage !== undefined && !userConfirmedAntecedentesOrAgendar(lastUserMessage)) {
-          return { success: true, message: "Indica si deseas añadir antecedentes o agendar una consulta para el paciente." };
-        }
+        // No usar aquí userConfirmedAntecedentesOrAgendar: esa regla aplica solo a agendar_consulta
+        // tras crear paciente. Bloquear open_section hacía que "llévame a la historia médica" fallara
+        // sin navigateTo mientras el modelo aún hablaba del botón "Abrir en la aplicación".
         const pid = await resolvePacienteId(token, args);
         const path = String(args.path ?? "").trim();
         if (!pid) return { success: false, error: { message: "Indique el paciente." } };
@@ -544,7 +548,7 @@ async function runTool(token: string, name: string, args: Record<string, unknown
         const esHistoria = path === "historia-medica" || path === "historia-medica/nuevo";
         let mensaje: string;
         if (esAntecedentes) {
-          mensaje = `Para ver o gestionar los antecedentes médicos de ${nombre}, haz clic en el botón **Abrir en la aplicación** que aparece debajo.`;
+          mensaje = `Te dejo el enlace para los **antecedentes** de ${nombre}: pulsa **Abrir en la aplicación** debajo de este mensaje.`;
         } else if (esHistoria) {
           const r = await backend.getConsultasByPaciente(token, pid);
           const tieneConsultas = Array.isArray(r.data) && r.data.length > 0;
@@ -553,12 +557,12 @@ async function runTool(token: string, name: string, args: Record<string, unknown
             return { success: true, message: mensaje };
           }
           if (path === "historia-medica/nuevo") {
-            mensaje = `Para añadir un nuevo control a la historia de ${nombre}, haz clic en el botón **Abrir en la aplicación** que aparece debajo.`;
+            mensaje = `Para añadir un nuevo control a la historia de ${nombre}, pulsa **Abrir en la aplicación** debajo de este mensaje.`;
           } else {
-            mensaje = `Para ver o gestionar la historia médica de ${nombre}, haz clic en el botón **Abrir en la aplicación** que aparece debajo.`;
+            mensaje = `Para ver o cargar la historia médica de ${nombre}, pulsa **Abrir en la aplicación** debajo de este mensaje.`;
           }
         } else {
-          mensaje = `Para ver o gestionar la historia médica de ${nombre}, haz clic en el botón **Abrir en la aplicación** que aparece debajo.`;
+          mensaje = `Para abrir esa sección de ${nombre}, pulsa **Abrir en la aplicación** debajo de este mensaje.`;
         }
         return { success: true, message: mensaje, navigateTo: urlPath };
       }
@@ -754,22 +758,44 @@ async function handleMessage(req: Request): Promise<Response> {
   if (strategy) {
     metrics.record({ strategy, durationMs, success, toolInvoked });
   }
-  append(conversationId, "assistant", finalReply);
 
-  // Fallback: si la respuesta habla de antecedentes/historia pero no hay enlace, extraer paciente del contexto y devolver navigateTo.
-  // No aplicar cuando la respuesta es solo la pregunta de seguimiento ("¿Deseas añadir antecedentes o agendar...?").
+  // Fallback: respuesta menciona historia/antecedentes o el botón pero no vino navigateTo (p. ej. modelo sin tool call).
   const isFollowUpQuestionOnly = /¿Deseas añadir antecedentes o agendar una consulta/i.test(finalReply) && /\?[\s.]*$/.test(finalReply.trim());
-  if (!navigateTo && !isFollowUpQuestionOnly && /antecedentes|te llevaré|sección correspondiente|gestionar los antecedentes/i.test(finalReply)) {
+  const esPreguntaSoloInformeIncompleto =
+    /¿Quieres que te lleve a la aplicación para completar la historia/i.test(finalReply);
+  const mencionaEnlaceUi =
+    !esPreguntaSoloInformeIncompleto &&
+    /antecedentes|te llevaré|sección correspondiente|gestionar los antecedentes|gestionar la historia|historia\s+m[eé]dica|cargar la historia|Abrir en la aplicaci[oó]n|bot[oó]n.*debajo|lleva(te|me)?\s+a\s+la\s+aplicaci[oó]n/i.test(
+      finalReply
+    );
+  if (!navigateTo && !isFollowUpQuestionOnly && mencionaEnlaceUi) {
     const patientName = extractPatientNameFromContext(stateMessages, message);
     if (patientName) {
       const pid = await resolvePacienteId(token, { paciente_nombre: patientName });
       if (pid) {
-        navigateTo = /historia|controles/i.test(finalReply) && !/antecedentes/i.test(finalReply)
-          ? `/patients/${pid}/historia-medica`
-          : `/patients/${pid}/antecedentes`;
+        const soloAntecedentes = /\bantecedentes\b/i.test(finalReply) && !/\b(historia\s+m[eé]dica|historia\s+cl[ií]nica|controles)\b/i.test(finalReply);
+        navigateTo = soloAntecedentes
+          ? `/patients/${pid}/antecedentes`
+          : `/patients/${pid}/historia-medica`;
       }
     }
   }
+
+  // Si aún promete el botón pero no hay enlace, quitar la afirmación falsa y orientar sin mentir.
+  if (!navigateTo && /\*\*Abrir en la aplicaci[oó]n\*\*|Abrir en la aplicaci[oó]n|bot[oó]n.*debajo|aparece debajo/i.test(finalReply)) {
+    let cleaned = finalReply
+      .replace(/haz clic en el bot[oó]n \*\*Abrir en la aplicaci[oó]n\*\* que aparece debajo\.?/gi, "")
+      .replace(/pulsa \*\*Abrir en la aplicaci[oó]n\*\* debajo de este mensaje\.?/gi, "")
+      .replace(/\*\*Abrir en la aplicaci[oó]n\*\*/gi, "")
+      .trim();
+    if (cleaned.endsWith(",")) cleaned = cleaned.slice(0, -1).trim();
+    finalReply =
+      cleaned +
+      "\n\nEn la aplicación: **Pacientes** → busca al paciente → **Historia médica** o **Antecedentes**. (Si no ves aquí el botón «Abrir en la aplicación», usa ese menú.)";
+    finalReply = finalReply.replace(/\n{3,}/g, "\n\n").trim();
+  }
+
+  append(conversationId, "assistant", finalReply);
 
   const payload: Record<string, unknown> = {
     success: true,
