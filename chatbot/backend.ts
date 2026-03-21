@@ -125,6 +125,39 @@ export async function getPatients(token: string): Promise<{ success: boolean; da
   return { success: true, data: list ?? [] };
 }
 
+/** Pacientes activos del médico en sesión con última consulta (fecha/hora/estado de esa fila en consultas_pacientes). */
+export async function getMyActivePatientsLastConsulta(
+  token: string,
+  limit = 200
+): Promise<{
+  success: boolean;
+  data?: { pacientes: Record<string, unknown>[]; criterio_ultima_consulta?: string };
+  error?: { message: string };
+}> {
+  const lim = Math.min(Math.max(limit, 1), 500);
+  const res = await fetch(`${BASE}/patients/mi-activos-ultima-consulta?limit=${lim}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  let json: { success?: boolean; data?: { pacientes?: unknown; criterio_ultima_consulta?: string }; error?: { message?: string } } = {};
+  try {
+    json = await res.json();
+  } catch {
+    return { success: false, error: { message: "Respuesta inválida del servidor" } };
+  }
+  if (!res.ok) {
+    return { success: false, error: { message: json?.error?.message || res.statusText } };
+  }
+  const inner = json?.data;
+  const pacientes = Array.isArray(inner?.pacientes) ? (inner.pacientes as Record<string, unknown>[]) : [];
+  return {
+    success: true,
+    data: {
+      pacientes,
+      criterio_ultima_consulta: typeof inner?.criterio_ultima_consulta === "string" ? inner.criterio_ultima_consulta : undefined,
+    },
+  };
+}
+
 /** Busca pacientes por nombre o cédula (chatbot tool use). */
 export async function searchPatients(
   token: string,
@@ -275,4 +308,47 @@ export async function createInforme(
   const json = await res.json();
   if (!res.ok) return { success: false, error: { message: json?.error?.message || res.statusText } };
   return { success: true, data: json?.data ?? json };
+}
+
+/** POST /pdf/receta-medico — solo rol médico en el API. Devuelve el PDF como bytes. */
+export async function postRecetaMedicoPdf(
+  token: string,
+  body: {
+    tipo?: "recipe" | "indicaciones";
+    contenido: string;
+    paciente_id?: number | null;
+    fecha_emision?: string | null;
+    pies_clinica_ids?: number[];
+  }
+): Promise<{ success: boolean; buffer?: Uint8Array; error?: { message: string } }> {
+  const res = await fetch(`${BASE}/pdf/receta-medico`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      tipo: body.tipo ?? "recipe",
+      contenido: body.contenido,
+      paciente_id: body.paciente_id ?? undefined,
+      fecha_emision: body.fecha_emision ?? undefined,
+      pies_clinica_ids: body.pies_clinica_ids,
+    }),
+  });
+  const ct = (res.headers.get("content-type") || "").toLowerCase();
+  if (!res.ok) {
+    let msg = res.statusText;
+    try {
+      const j = (await res.json()) as { message?: string; error?: { message?: string } };
+      msg = j?.message || j?.error?.message || msg;
+    } catch {
+      /* cuerpo no JSON */
+    }
+    return { success: false, error: { message: msg || `Error ${res.status}` } };
+  }
+  if (ct.includes("application/pdf")) {
+    const buf = new Uint8Array(await res.arrayBuffer());
+    return { success: true, buffer: buf };
+  }
+  return { success: false, error: { message: "El servidor no devolvió un PDF" } };
 }

@@ -605,6 +605,55 @@ export class PatientController {
     }
   }
 
+  /**
+   * Pacientes activos del médico en sesión con última consulta (fecha_pautada + estado de esa fila).
+   * Admin/secretaria pueden pasar ?medico_id=.
+   */
+  async getMyActivePatientsLastConsulta(req: AuthenticatedRequest, res: Response<ApiResponse>): Promise<void> {
+    try {
+      const user = req.user;
+      const limitRaw = parseInt(String(req.query['limit'] ?? '200'), 10);
+      const limit = Math.min(Math.max(isNaN(limitRaw) ? 200 : limitRaw, 1), 500);
+
+      let medicoId: number | null = null;
+      const qMedico = req.query['medico_id'] != null ? parseInt(String(req.query['medico_id']), 10) : NaN;
+      if (!isNaN(qMedico) && qMedico > 0 && user && (user.rol === 'administrador' || user.rol === 'secretaria')) {
+        medicoId = qMedico;
+      } else if (user?.medico_id && user.medico_id > 0) {
+        medicoId = user.medico_id;
+      }
+
+      if (!medicoId) {
+        const response: ApiResponse = {
+          success: false,
+          error: {
+            message:
+              'Se requiere usuario médico con medico_id o, para administrador/secretaria, el query param medico_id.',
+          },
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      const pacientes = await this.patientService.getActivePatientsWithLastConsultaByMedico(medicoId, limit);
+      const response: ApiResponse = {
+        success: true,
+        data: {
+          pacientes,
+          criterio_ultima_consulta:
+            'Por cada paciente se toma la consulta en consultas_pacientes con este médico que tiene la fecha_pautada más reciente; si hay empate, hora_pautada, luego fecha_creacion y id. ultima_consulta_estado es el estado_consulta de esa fila.',
+        },
+      };
+      res.json(response);
+    } catch (error) {
+      const response: ApiResponse = {
+        success: false,
+        error: { message: (error as Error).message },
+      };
+      res.status(500).json(response);
+    }
+  }
+
   async testEndpoint(_req: Request, res: Response<ApiResponse>): Promise<void> {
     try {
       const response: ApiResponse = {

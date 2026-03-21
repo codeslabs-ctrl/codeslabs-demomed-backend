@@ -23,6 +23,11 @@ router.get('/search-by-patologia', medicoSecretariaMiddleware, (req: any, res: a
 router.get('/age-range', medicoSecretariaMiddleware, (req: any, res: any) => patientController.getPatientsByAgeRange(req, res));
 router.get('/check-email', medicoSecretariaMiddleware, (req: any, res: any) => patientController.checkEmailAvailability(req, res));
 router.get('/email/:email', medicoSecretariaMiddleware, (req: any, res: any) => patientController.getPatientByEmail(req, res));
+router.get(
+  '/mi-activos-ultima-consulta',
+  medicoSecretariaMiddleware,
+  (req: any, res: any) => patientController.getMyActivePatientsLastConsulta(req as any, res)
+);
 router.get('/by-medico/:medicoId', medicoSecretariaMiddleware, (req: any, res: any) => patientController.getPatientsByMedico(req as any, res));
 router.get('/by-medico/:medicoId/stats', medicoSecretariaMiddleware, (req: any, res: any) => patientController.getPatientsByMedicoForStats(req as any, res));
 router.get('/test', (req: any, res: any) => patientController.testEndpoint(req, res));

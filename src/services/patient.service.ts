@@ -316,11 +316,12 @@ export class PatientService {
 
   async searchPatientsByCedula(cedula: string): Promise<PatientData[]> {
     try {
-      if (!cedula || cedula.trim().length < 2) {
-        throw new Error('Search cedula must be at least 2 characters long');
+      const trimmed = (cedula ?? '').trim().toUpperCase();
+      if (!trimmed || !/^[VEJPG][0-9]{3,8}$/.test(trimmed)) {
+        throw new Error('La cédula debe ser V, E, J, P o G seguida de entre 3 y 8 dígitos');
       }
 
-      return await this.patientRepository.searchByCedula(cedula.trim());
+      return await this.patientRepository.searchByCedula(trimmed);
     } catch (error) {
       throw new Error(`Failed to search patients by cedula: ${(error as Error).message}`);
     }
@@ -499,5 +500,68 @@ export class PatientService {
     if (age < 60) return '45-59';
     if (age < 75) return '60-74';
     return '75+';
+  }
+
+  /**
+   * Pacientes activos con al menos una consulta con el médico indicado.
+   * Última consulta = fila en consultas_pacientes con mayor fecha_pautada; desempate: hora_pautada, fecha_creacion, id.
+   */
+  async getActivePatientsWithLastConsultaByMedico(
+    medicoId: number,
+    limit: number = 200
+  ): Promise<
+    {
+      paciente_id: number;
+      nombre_completo: string;
+      edad: number | null;
+      telefono: string | null;
+      email: string | null;
+      ultima_consulta_fecha: string | null;
+      ultima_consulta_hora: string | null;
+      ultima_consulta_estado: string | null;
+    }[]
+  > {
+    if (!medicoId || medicoId <= 0) {
+      throw new Error('Valid medico ID is required');
+    }
+    const lim = Math.min(Math.max(limit, 1), 500);
+    const client = await postgresPool.connect();
+    try {
+      const result = await client.query(
+        `SELECT
+          p.id AS paciente_id,
+          TRIM(CONCAT(COALESCE(p.nombres, ''), ' ', COALESCE(p.apellidos, ''))) AS nombre_completo,
+          p.edad,
+          p.telefono,
+          p.email,
+          lc.fecha_pautada::text AS ultima_consulta_fecha,
+          lc.hora_pautada::text AS ultima_consulta_hora,
+          lc.estado_consulta AS ultima_consulta_estado
+        FROM pacientes p
+        INNER JOIN LATERAL (
+          SELECT c.fecha_pautada, c.hora_pautada, c.estado_consulta
+          FROM consultas_pacientes c
+          WHERE c.medico_id = $1 AND c.paciente_id = p.id
+          ORDER BY c.fecha_pautada DESC, c.hora_pautada DESC NULLS LAST, c.fecha_creacion DESC NULLS LAST, c.id DESC
+          LIMIT 1
+        ) lc ON true
+        WHERE COALESCE(p.activo, true) = true
+        ORDER BY p.apellidos NULLS LAST, p.nombres NULLS LAST
+        LIMIT $2`,
+        [medicoId, lim]
+      );
+      return result.rows as {
+        paciente_id: number;
+        nombre_completo: string;
+        edad: number | null;
+        telefono: string | null;
+        email: string | null;
+        ultima_consulta_fecha: string | null;
+        ultima_consulta_hora: string | null;
+        ultima_consulta_estado: string | null;
+      }[];
+    } finally {
+      client.release();
+    }
   }
 }

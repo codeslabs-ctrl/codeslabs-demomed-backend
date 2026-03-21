@@ -30,6 +30,33 @@ function formatHoraAmPm(h: unknown): string {
   return `${h12}:${min} ${ampm}`;
 }
 
+/** YYYY-MM-DD → DD/MM/YYYY para mostrar en el chat. */
+function formatFechaDisplay(fechaRaw: unknown): string {
+  const s = String(fechaRaw ?? "").trim().slice(0, 10);
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+  return s || "—";
+}
+
+/** Texto listo para el usuario: lista con viñetas, hora en AM/PM (el front no renderiza tablas markdown). */
+function formatListadoPacientesActivosRespuesta(rows: Record<string, unknown>[]): string {
+  if (rows.length === 0) return "No hay pacientes activos con al menos una consulta registrada contigo.";
+  const intro =
+    "Pacientes activos (la **última consulta** es la de **fecha pautada** más reciente contigo; el **estado** corresponde a esa misma consulta):\n\n";
+  const bullets = rows.map((r) => {
+    const nombre = String(r.nombre_completo ?? "").trim() || "—";
+    const edad = r.edad ?? "—";
+    const tel = String(r.telefono ?? "").trim() || "—";
+    const email = String(r.email ?? "").trim() || "—";
+    const fecha = formatFechaDisplay(r.ultima_consulta_fecha);
+    const hora = formatHoraAmPm(r.ultima_consulta_hora);
+    const estado = String(r.ultima_consulta_estado ?? "").trim() || "—";
+    const fechaHora = fecha !== "—" ? `${fecha} ${hora}`.trim() : "—";
+    return `* **${nombre}** — Edad: ${edad} · Tel: ${tel} · Email: ${email} · Última consulta: ${fechaHora} · Estado: ${estado}`;
+  });
+  return intro + bullets.join("\n");
+}
+
 /** Días de la semana en español → número (0 = domingo, 1 = lunes, ... 6 = sábado). */
 const DIA_SEMANA: Record<string, number> = {
   domingo: 0, lunes: 1, martes: 2, miércoles: 3, jueves: 4, viernes: 5, sábado: 6,
@@ -233,7 +260,45 @@ function formatToolResultForReply(toolName: string, toolResult: Record<string, u
     const parts = data.slice(0, 15).map((r: Record<string, unknown>) => `* ${r.fecha ?? "—"} - ${String(r.diagnostico ?? r.motivo ?? "").trim() || "—"}`);
     return "Historial:\n\n" + parts.join("\n");
   }
+  if (toolName === "listar_pacientes_activos" && Array.isArray(data)) {
+    return formatListadoPacientesActivosRespuesta(data as Record<string, unknown>[]);
+  }
   return null;
+}
+
+/** Codifica PDF en base64 para enviarlo en la respuesta JSON del chat (el front descarga con un botón). */
+function uint8ToBase64(bytes: Uint8Array): string {
+  if (bytes.byteLength === 0) return "";
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)));
+  }
+  return btoa(binary);
+}
+
+/**
+ * Consulta “atendida” con el médico de la sesión: misma lógica que verificación de pacientes tratados en el API
+ * (completada, finalizada o con fecha_culminacion).
+ */
+function consultaCompletadaConMedico(consultas: Record<string, unknown>[], medicoId: number): boolean {
+  return consultas.some((c) => {
+    const mid = Number(c.medico_id);
+    if (!Number.isFinite(mid) || mid !== medicoId) return false;
+    const estado = String(c.estado_consulta ?? "").toLowerCase();
+    if (estado === "finalizada" || estado === "completada") return true;
+    const fc = c.fecha_culminacion;
+    if (fc == null) return false;
+    const s = String(fc).trim();
+    return s !== "" && s.toLowerCase() !== "null";
+  });
+}
+
+/** No enviar pdf_base64 al modelo (tokens); el cliente lo recibe aparte en pdfDownload. */
+function stripPdfFromToolResult(raw: Record<string, unknown>): Record<string, unknown> {
+  if (typeof raw.pdf_base64 !== "string") return raw;
+  const { pdf_base64: _omit, ...rest } = raw;
+  return { ...rest, pdf_generado: true, pdf_filename: raw.pdf_filename };
 }
 
 function getToken(req: Request): string | null {
@@ -274,11 +339,17 @@ async function resolvePacienteId(token: string, args: Record<string, unknown>): 
   return null;
 }
 
-/** Valida formato de cédula: V12345678, E1234567, J12345678, P12345678, G12345678 (letra mayúscula o minúscula). */
+/** Valida formato de cédula: prefijo V,E,J,P,G y 3–8 dígitos (E hasta 7 dígitos como en formato típico). Mayúsculas/minúsculas. */
 function isCedulaFormatValid(cedula: string): boolean {
   const c = String(cedula ?? "").trim().toUpperCase();
   if (!c) return false;
-  return /^V\d{8}$/.test(c) || /^E\d{7}$/.test(c) || /^[JPG]\d{8}$/.test(c);
+  const m = c.match(/^([VEJPG])(\d+)$/);
+  if (!m) return false;
+  const digits = m[2];
+  if (digits.length < 3) return false;
+  const letter = m[1];
+  if (letter === "E") return digits.length <= 7;
+  return digits.length <= 8;
 }
 
 /** Indica si el mensaje del usuario confirma que quiere antecedentes o agendar (no solo datos de contacto). Solo para agendar_consulta. */
@@ -385,6 +456,23 @@ async function runTool(token: string, name: string, args: Record<string, unknown
         const r = await backend.getClinicasAtencion(token);
         if (!r.success) return { success: false, error: r.error };
         return { success: true, clinicas: r.data ?? [], message: "Lista de clínicas de atención disponibles." };
+      }
+      case "listar_pacientes_activos": {
+        const lim = Math.min(Math.max(Number(args.limite) || 200, 1), 500);
+        const r = await backend.getMyActivePatientsLastConsulta(token, lim);
+        if (!r.success) return { success: false, error: r.error ?? { message: "Error al listar pacientes" } };
+        const pacientes = r.data?.pacientes ?? [];
+        const respuesta_chat = formatListadoPacientesActivosRespuesta(pacientes);
+        return {
+          success: true,
+          data: pacientes,
+          criterio_ultima_consulta: r.data?.criterio_ultima_consulta,
+          respuesta_chat,
+          message:
+            pacientes.length === 0
+              ? respuesta_chat
+              : `Hay ${pacientes.length} paciente(s). Última consulta = fecha_pautada más reciente contigo; estado = estado_consulta de esa fila. Usa respuesta_chat tal cual para el usuario (lista, hora AM/PM).`,
+        };
       }
       case "nuevo_paciente": {
         const cedula = String(args.cedula ?? "").trim();
@@ -535,6 +623,59 @@ async function runTool(token: string, name: string, args: Record<string, unknown
         });
         return r.success ? { success: true, data: r.data, message: "Informe creado." } : { success: false, error: r.error };
       }
+      case "crear_recipe_medico": {
+        const userRes = await backend.getCurrentUser(token);
+        const rol = String(userRes.data?.rol ?? "").toLowerCase();
+        const medico_id = userRes.data?.medico_id ?? 0;
+        if (!userRes.success || rol !== "medico" || !medico_id) {
+          return { success: false, error: { message: "Solo los médicos pueden generar el récipe desde el chat." } };
+        }
+        let pid = Number(args.paciente_id);
+        if (!pid) pid = (await resolvePacienteId(token, args)) ?? 0;
+        if (!pid) {
+          return { success: false, error: { message: "Indica el paciente (paciente_id o paciente_nombre)." } };
+        }
+        const textoRecipe = String(args.texto_recipe ?? "").trim();
+        const textoIndicaciones = String(args.texto_indicaciones ?? "").trim();
+        if (!textoRecipe || !textoIndicaciones) {
+          return {
+            success: false,
+            error: { message: "Se requieren texto_recipe y texto_indicaciones (medicamentos y orientación al paciente)." },
+          };
+        }
+        const consultasRes = await backend.getConsultasByPaciente(token, pid);
+        if (!consultasRes.success) {
+          return { success: false, error: { message: "No se pudieron verificar las consultas del paciente. Inténtalo de nuevo." } };
+        }
+        const lista = Array.isArray(consultasRes.data) ? consultasRes.data : [];
+        if (!consultaCompletadaConMedico(lista as Record<string, unknown>[], medico_id)) {
+          return {
+            success: false,
+            error: {
+              message:
+                "No puedo generar el PDF del récipe: **este paciente no tiene ninguna consulta completada o finalizada contigo** en el sistema (no consta una visita culminada asociada a tu usuario). " +
+                "Completa o culmina la consulta en la aplicación (historia médica / flujo de consulta) y vuelve a intentarlo. " +
+                "Si quieres, puedo abrir la historia del paciente: pide «abrir historia» o similar para usar **open_section**.",
+            },
+          };
+        }
+        const fechaEmision = String(args.fecha_emision ?? "").trim().slice(0, 10) || undefined;
+        const contenido = `RÉCIPE / MEDICAMENTOS\n${textoRecipe}\n\nINDICACIONES\n${textoIndicaciones}`;
+        const pdfRes = await backend.postRecetaMedicoPdf(token, {
+          tipo: "recipe",
+          contenido,
+          paciente_id: pid,
+          fecha_emision: fechaEmision ?? null,
+        });
+        if (!pdfRes.success || !pdfRes.buffer) {
+          return { success: false, error: pdfRes.error ?? { message: "No se pudo generar el PDF." } };
+        }
+        const pdf_base64 = uint8ToBase64(pdfRes.buffer);
+        const pdf_filename = `receta-recipe-${Date.now()}.pdf`;
+        const message =
+          "He generado el PDF con el récipe y las indicaciones. Indica al usuario que puede descargarlo con el botón **Descargar PDF** debajo de tu mensaje (no inventes enlaces URL).";
+        return { success: true, message, pdf_base64, pdf_filename };
+      }
       case "open_section": {
         // No usar aquí userConfirmedAntecedentesOrAgendar: esa regla aplica solo a agendar_consulta
         // tras crear paciente. Bloquear open_section hacía que "llévame a la historia médica" fallara
@@ -619,6 +760,7 @@ async function handleMessage(req: Request): Promise<Response> {
 
   let finalReply: string | undefined;
   let navigateTo: string | undefined;
+  let pdfDownload: { base64: string; filename: string } | undefined;
 
   const confirmacionAgendar = await buildConfirmacionAgendar(message, stateMessages, token) ?? buildConfirmacionAgendarFallback(message);
   const esConfirmacionAgendar = messageIsConfirmacionAgendar(message);
@@ -695,7 +837,11 @@ async function handleMessage(req: Request): Promise<Response> {
       const messagesForApi = [...stateMessages.slice(0, -1), { role: "user" as const, content: lastUserContent }];
       const executeTool = async (name: string, args: Record<string, unknown>) => {
         toolInvoked = true;
-        return runTool(token, name, args, message);
+        const raw = (await runTool(token, name, args, message)) as Record<string, unknown>;
+        if (typeof raw.pdf_base64 === "string" && typeof raw.pdf_filename === "string") {
+          pdfDownload = { base64: raw.pdf_base64, filename: raw.pdf_filename };
+        }
+        return stripPdfFromToolResult(raw);
       };
       const result = await chat(messagesForApi, { executeTool });
       finalReply = result.reply ?? "";
@@ -742,6 +888,12 @@ async function handleMessage(req: Request): Promise<Response> {
           }
         }
         if (toolResult && typeof toolResult === "object" && "navigateTo" in toolResult) navigateTo = String((toolResult as { navigateTo?: string }).navigateTo ?? "");
+        if (toolResult && typeof toolResult === "object") {
+          const tr = toolResult as { pdf_base64?: string; pdf_filename?: string };
+          if (typeof tr.pdf_base64 === "string" && typeof tr.pdf_filename === "string") {
+            pdfDownload = { base64: tr.pdf_base64, filename: tr.pdf_filename };
+          }
+        }
       }
     }
   }
@@ -804,6 +956,7 @@ async function handleMessage(req: Request): Promise<Response> {
     fromAudio: !!body.audioBase64,
   };
   if (navigateTo) payload.navigateTo = navigateTo;
+  if (pdfDownload) payload.pdfDownload = pdfDownload;
 
   return new Response(JSON.stringify(payload), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -873,10 +1026,23 @@ function legacyActionToTool(action: string, data: Record<string, unknown>): { to
       return { toolName: "get_patient_data", args: { paciente_id: data.paciente_id, paciente_nombre: data.paciente_nombre } };
     case "get_consultations":
       return { toolName: "buscar_consultas", args: { tipo: data.tipo, paciente_id: data.paciente_id, paciente_nombre: data.paciente_nombre } };
+    case "list_active_patients":
+      return { toolName: "listar_pacientes_activos", args: { limite: data.limite } };
     case "open_section":
       return { toolName: "open_section", args: { paciente_id: data.paciente_id, paciente_nombre: data.paciente_nombre, path: data.path } };
     case "generate_report":
       return { toolName: "generar_informe", args: { paciente_id: data.paciente_id, paciente_nombre: data.paciente_nombre, tipo_informe: data.tipo_informe, contenido: data.contenido, observaciones: data.observaciones } };
+    case "create_medical_recipe":
+      return {
+        toolName: "crear_recipe_medico",
+        args: {
+          paciente_id: data.paciente_id,
+          paciente_nombre: data.paciente_nombre,
+          texto_recipe: data.texto_recipe,
+          texto_indicaciones: data.texto_indicaciones,
+          fecha_emision: data.fecha_emision,
+        },
+      };
     default:
       return { toolName: "", args: {} };
   }
