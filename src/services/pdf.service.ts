@@ -1120,11 +1120,38 @@ export class PDFService {
   .receta-fecha { font-size: 9pt; color: #64748b; margin: 10px 0; }
   .receta-body { min-height: 120mm; position: relative; padding: 8px 0; }
   .receta-body-inner { position: relative; z-index: 1; white-space: normal; line-height: 1.5; }
+  .receta-body-inner--con-firma { padding-bottom: 22mm; box-sizing: border-box; }
   .receta-watermark { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; opacity: 0.06; font-size: 72px; font-weight: 800; color: #64748b; pointer-events: none; z-index: 0; }
   .receta-paciente { font-size: 10pt; margin-bottom: 10px; padding: 8px; background: #f8fafc; border-radius: 6px; }
-  .receta-firma { margin-top: 14px; padding-top: 10px; border-top: 1px solid #e2e8f0; break-inside: avoid; }
-  .receta-firma .firma-imagenes { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  .receta-firma .firma-img, .receta-firma .sello-img { max-width: 120px; max-height: 60px; object-fit: contain; }
+  .receta-firma--overlay {
+    position: absolute;
+    bottom: 3mm;
+    right: 0;
+    margin: 0;
+    padding: 0;
+    border: none;
+    z-index: 2;
+    pointer-events: none;
+    opacity: 0.88;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .receta-firma--overlay .firma-imagenes {
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-end;
+    gap: 0.4rem;
+    flex-wrap: nowrap;
+  }
+  .receta-firma--overlay .firma-img,
+  .receta-firma--overlay .sello-img {
+    max-width: 95px;
+    max-height: 44px;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    vertical-align: bottom;
+  }
   .receta-footer { display: flex; gap: 12px; margin-top: 14px; padding-top: 10px; border-top: 1px solid #e2e8f0; font-size: 7.5pt; color: #475569; }
   .pie-col { flex: 1; min-width: 0; }
   .pie-logo { max-height: 40px; max-width: 140px; object-fit: contain; display: block; margin-bottom: 4px; }

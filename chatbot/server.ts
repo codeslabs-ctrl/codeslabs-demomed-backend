@@ -294,11 +294,41 @@ function consultaCompletadaConMedico(consultas: Record<string, unknown>[], medic
   });
 }
 
-/** No enviar pdf_base64 al modelo (tokens); el cliente lo recibe aparte en pdfDownload. */
+/** Quita binarios del resultado de tool antes de enviarlo al modelo. */
 function stripPdfFromToolResult(raw: Record<string, unknown>): Record<string, unknown> {
-  if (typeof raw.pdf_base64 !== "string") return raw;
-  const { pdf_base64: _omit, ...rest } = raw;
-  return { ...rest, pdf_generado: true, pdf_filename: raw.pdf_filename };
+  const hasLegacy = typeof raw.pdf_base64 === "string";
+  const hasSplit =
+    typeof raw.pdf_base64_recipe === "string" || typeof raw.pdf_base64_indicaciones === "string";
+  if (!hasLegacy && !hasSplit) return raw;
+  const {
+    pdf_base64: _a,
+    pdf_filename: _b,
+    pdf_base64_recipe: _c,
+    pdf_filename_recipe: _d,
+    pdf_base64_indicaciones: _e,
+    pdf_filename_indicaciones: _f,
+    ...rest
+  } = raw;
+  const n = hasSplit
+    ? (typeof raw.pdf_base64_recipe === "string" ? 1 : 0) + (typeof raw.pdf_base64_indicaciones === "string" ? 1 : 0)
+    : 1;
+  return { ...rest, pdf_generado: true, pdfs_generados: n };
+}
+
+/** Adjuntos PDF para el cliente (después de runTool, antes de strip). */
+function collectPdfsFromToolResult(raw: Record<string, unknown>): { base64: string; filename: string; label: string }[] {
+  const out: { base64: string; filename: string; label: string }[] = [];
+  if (typeof raw.pdf_base64_recipe === "string" && typeof raw.pdf_filename_recipe === "string") {
+    out.push({ base64: raw.pdf_base64_recipe, filename: String(raw.pdf_filename_recipe), label: "PDF medicamentos" });
+  }
+  if (typeof raw.pdf_base64_indicaciones === "string" && typeof raw.pdf_filename_indicaciones === "string") {
+    out.push({ base64: raw.pdf_base64_indicaciones, filename: String(raw.pdf_filename_indicaciones), label: "PDF indicaciones" });
+  }
+  if (out.length) return out;
+  if (typeof raw.pdf_base64 === "string" && typeof raw.pdf_filename === "string") {
+    return [{ base64: raw.pdf_base64, filename: String(raw.pdf_filename), label: "Descargar PDF" }];
+  }
+  return [];
 }
 
 function getToken(req: Request): string | null {
@@ -635,14 +665,22 @@ async function runTool(token: string, name: string, args: Record<string, unknown
         if (!pid) {
           return { success: false, error: { message: "Indica el paciente (paciente_id o paciente_nombre)." } };
         }
-        const textoRecipe = String(args.texto_recipe ?? "").trim();
         const textoIndicaciones = String(args.texto_indicaciones ?? "").trim();
-        if (!textoRecipe || !textoIndicaciones) {
+        const nombresRaw = String(args.nombres_medicamentos ?? "").trim();
+        const lineasNombres = nombresRaw
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter(Boolean);
+        if (!textoIndicaciones || lineasNombres.length === 0) {
           return {
             success: false,
-            error: { message: "Se requieren texto_recipe y texto_indicaciones (medicamentos y orientación al paciente)." },
+            error: {
+              message:
+                "Se requieren **nombres_medicamentos** (un medicamento por línea, solo el nombre, p. ej. Acetaminofén) y **texto_indicaciones** (orientación al paciente). El PDF de medicamentos solo listará esos nombres; el de indicaciones llevará el texto completo.",
+            },
           };
         }
+        const contenidoMedicamentos = lineasNombres.join("\n");
         const consultasRes = await backend.getConsultasByPaciente(token, pid);
         if (!consultasRes.success) {
           return { success: false, error: { message: "No se pudieron verificar las consultas del paciente. Inténtalo de nuevo." } };
@@ -660,21 +698,39 @@ async function runTool(token: string, name: string, args: Record<string, unknown
           };
         }
         const fechaEmision = String(args.fecha_emision ?? "").trim().slice(0, 10) || undefined;
-        const contenido = `RÉCIPE / MEDICAMENTOS\n${textoRecipe}\n\nINDICACIONES\n${textoIndicaciones}`;
-        const pdfRes = await backend.postRecetaMedicoPdf(token, {
+        const ts = Date.now();
+        const pdfRecipe = await backend.postRecetaMedicoPdf(token, {
           tipo: "recipe",
-          contenido,
+          contenido: contenidoMedicamentos,
           paciente_id: pid,
           fecha_emision: fechaEmision ?? null,
         });
-        if (!pdfRes.success || !pdfRes.buffer) {
-          return { success: false, error: pdfRes.error ?? { message: "No se pudo generar el PDF." } };
+        if (!pdfRecipe.success || !pdfRecipe.buffer) {
+          return { success: false, error: pdfRecipe.error ?? { message: "No se pudo generar el PDF de medicamentos." } };
         }
-        const pdf_base64 = uint8ToBase64(pdfRes.buffer);
-        const pdf_filename = `receta-recipe-${Date.now()}.pdf`;
+        const pdfInd = await backend.postRecetaMedicoPdf(token, {
+          tipo: "indicaciones",
+          contenido: textoIndicaciones,
+          paciente_id: pid,
+          fecha_emision: fechaEmision ?? null,
+        });
+        if (!pdfInd.success || !pdfInd.buffer) {
+          return { success: false, error: pdfInd.error ?? { message: "No se pudo generar el PDF de indicaciones." } };
+        }
+        const pdf_base64_recipe = uint8ToBase64(pdfRecipe.buffer);
+        const pdf_filename_recipe = `receta-medicamentos-${ts}.pdf`;
+        const pdf_base64_indicaciones = uint8ToBase64(pdfInd.buffer);
+        const pdf_filename_indicaciones = `receta-indicaciones-${ts}.pdf`;
         const message =
-          "He generado el PDF con el récipe y las indicaciones. Indica al usuario que puede descargarlo con el botón **Descargar PDF** debajo de tu mensaje (no inventes enlaces URL).";
-        return { success: true, message, pdf_base64, pdf_filename };
+          "Se generaron **dos PDF**: uno solo con los **nombres de medicamentos** y otro con las **indicaciones**. Indica al usuario que use los botones **PDF medicamentos** y **PDF indicaciones** debajo del mensaje (no inventes enlaces URL).";
+        return {
+          success: true,
+          message,
+          pdf_base64_recipe,
+          pdf_filename_recipe,
+          pdf_base64_indicaciones,
+          pdf_filename_indicaciones,
+        };
       }
       case "open_section": {
         // No usar aquí userConfirmedAntecedentesOrAgendar: esa regla aplica solo a agendar_consulta
@@ -838,9 +894,8 @@ async function handleMessage(req: Request): Promise<Response> {
       const executeTool = async (name: string, args: Record<string, unknown>) => {
         toolInvoked = true;
         const raw = (await runTool(token, name, args, message)) as Record<string, unknown>;
-        if (typeof raw.pdf_base64 === "string" && typeof raw.pdf_filename === "string") {
-          pdfDownload = { base64: raw.pdf_base64, filename: raw.pdf_filename };
-        }
+        const pdfs = collectPdfsFromToolResult(raw);
+        if (pdfs.length) pdfDownloads = pdfs;
         return stripPdfFromToolResult(raw);
       };
       const result = await chat(messagesForApi, { executeTool });
@@ -889,10 +944,8 @@ async function handleMessage(req: Request): Promise<Response> {
         }
         if (toolResult && typeof toolResult === "object" && "navigateTo" in toolResult) navigateTo = String((toolResult as { navigateTo?: string }).navigateTo ?? "");
         if (toolResult && typeof toolResult === "object") {
-          const tr = toolResult as { pdf_base64?: string; pdf_filename?: string };
-          if (typeof tr.pdf_base64 === "string" && typeof tr.pdf_filename === "string") {
-            pdfDownload = { base64: tr.pdf_base64, filename: tr.pdf_filename };
-          }
+          const pdfs = collectPdfsFromToolResult(toolResult as Record<string, unknown>);
+          if (pdfs.length) pdfDownloads = pdfs;
         }
       }
     }
@@ -956,7 +1009,12 @@ async function handleMessage(req: Request): Promise<Response> {
     fromAudio: !!body.audioBase64,
   };
   if (navigateTo) payload.navigateTo = navigateTo;
-  if (pdfDownload) payload.pdfDownload = pdfDownload;
+  if (pdfDownloads?.length) {
+    payload.pdfDownloads = pdfDownloads;
+    if (pdfDownloads.length === 1) {
+      payload.pdfDownload = { base64: pdfDownloads[0].base64, filename: pdfDownloads[0].filename };
+    }
+  }
 
   return new Response(JSON.stringify(payload), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1038,8 +1096,9 @@ function legacyActionToTool(action: string, data: Record<string, unknown>): { to
         args: {
           paciente_id: data.paciente_id,
           paciente_nombre: data.paciente_nombre,
-          texto_recipe: data.texto_recipe,
+          nombres_medicamentos: data.nombres_medicamentos,
           texto_indicaciones: data.texto_indicaciones,
+          texto_recipe: data.texto_recipe,
           fecha_emision: data.fecha_emision,
         },
       };
