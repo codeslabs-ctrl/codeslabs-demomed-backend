@@ -369,6 +369,77 @@ async function resolvePacienteId(token: string, args: Record<string, unknown>): 
   return null;
 }
 
+/**
+ * IDs de clínicas de atención para el pie del récipe (máx. 2), alineado al formulario «Pie de página — clínicas».
+ * Una sola clínica en BD → se usa automáticamente. Varias sin pies_clinica_ids → el médico debe elegir.
+ */
+async function resolvePiesClinicaIdsForRecipe(
+  token: string,
+  args: Record<string, unknown>
+): Promise<{ ok: true; ids: number[] } | { ok: false; message: string }> {
+  const raw = args.pies_clinica_ids;
+  let ids: number[] = [];
+  if (Array.isArray(raw)) {
+    ids = raw
+      .map((n) => (typeof n === "number" ? n : Number(n)))
+      .filter((n) => Number.isFinite(n) && n > 0);
+  }
+  ids = [...new Set(ids)];
+  if (ids.length > 2) {
+    return {
+      ok: false,
+      message:
+        "Solo puedes elegir **como máximo 2** clínicas para el pie del récipe (igual que en el formulario). Indica uno o dos **ID** numéricos.",
+    };
+  }
+
+  const clinicasRes = await backend.getClinicasAtencion(token);
+  if (!clinicasRes.success || !Array.isArray(clinicasRes.data)) {
+    return { ok: false, message: "No se pudieron cargar las clínicas de atención. Inténtalo de nuevo." };
+  }
+  const clinicas = clinicasRes.data;
+
+  if (clinicas.length === 0) {
+    return { ok: true, ids: [] };
+  }
+  if (clinicas.length === 1) {
+    if (ids.length === 0) return { ok: true, ids: [clinicas[0].id] };
+    const valid = ids.filter((id) => clinicas.some((c) => c.id === id));
+    if (valid.length === 0) {
+      return {
+        ok: false,
+        message: `El ID de clínica no es válido. La clínica configurada es: **ID ${clinicas[0].id}** — ${clinicas[0].nombre_clinica || "—"}.`,
+      };
+    }
+    return { ok: true, ids: valid.slice(0, 2) };
+  }
+
+  if (ids.length === 0) {
+    const lines = clinicas.map((c, i) => `${i + 1}. **ID ${c.id}** — ${c.nombre_clinica || "—"}`).join("\n");
+    return {
+      ok: false,
+      message:
+        "Para el **pie de página del récipe** debes elegir **una o dos** clínicas de atención (como «Pie de página — clínicas (máx. 2)» en el formulario de la app).\n\n" +
+        "Clínicas disponibles:\n" +
+        lines +
+        "\n\nResponde con los **ID** que quieres (uno o dos). Ej.: «clínicas 2 y 5» o «solo la 3». También puedo listarlas otra vez con **listar_clinicas**.",
+    };
+  }
+
+  const invalid = ids.filter((id) => !clinicas.some((c) => c.id === id));
+  if (invalid.length > 0) {
+    const lines = clinicas.map((c, i) => `${i + 1}. **ID ${c.id}** — ${c.nombre_clinica || "—"}`).join("\n");
+    return {
+      ok: false,
+      message:
+        `Estos ID no son clínicas de atención válidas: ${invalid.join(", ")}.\n\n` +
+        "Clínicas disponibles:\n" +
+        lines,
+    };
+  }
+  return { ok: true, ids };
+}
+
 /** Valida formato de cédula: prefijo V,E,J,P,G y 3–8 dígitos (E hasta 7 dígitos como en formato típico). Mayúsculas/minúsculas. */
 function isCedulaFormatValid(cedula: string): boolean {
   const c = String(cedula ?? "").trim().toUpperCase();
@@ -697,6 +768,10 @@ async function runTool(token: string, name: string, args: Record<string, unknown
             },
           };
         }
+        const piesRes = await resolvePiesClinicaIdsForRecipe(token, args);
+        if (!piesRes.ok) return { success: false, error: { message: piesRes.message } };
+        const piesClinicaIds = piesRes.ids;
+
         const fechaEmision = String(args.fecha_emision ?? "").trim().slice(0, 10) || undefined;
         const ts = Date.now();
         const pdfRecipe = await backend.postRecetaMedicoPdf(token, {
@@ -704,6 +779,7 @@ async function runTool(token: string, name: string, args: Record<string, unknown
           contenido: contenidoMedicamentos,
           paciente_id: pid,
           fecha_emision: fechaEmision ?? null,
+          pies_clinica_ids: piesClinicaIds.length ? piesClinicaIds : undefined,
         });
         if (!pdfRecipe.success || !pdfRecipe.buffer) {
           return { success: false, error: pdfRecipe.error ?? { message: "No se pudo generar el PDF de medicamentos." } };
@@ -713,6 +789,7 @@ async function runTool(token: string, name: string, args: Record<string, unknown
           contenido: textoIndicaciones,
           paciente_id: pid,
           fecha_emision: fechaEmision ?? null,
+          pies_clinica_ids: piesClinicaIds.length ? piesClinicaIds : undefined,
         });
         if (!pdfInd.success || !pdfInd.buffer) {
           return { success: false, error: pdfInd.error ?? { message: "No se pudo generar el PDF de indicaciones." } };
@@ -1100,6 +1177,7 @@ function legacyActionToTool(action: string, data: Record<string, unknown>): { to
           texto_indicaciones: data.texto_indicaciones,
           texto_recipe: data.texto_recipe,
           fecha_emision: data.fecha_emision,
+          pies_clinica_ids: data.pies_clinica_ids,
         },
       };
     default:
