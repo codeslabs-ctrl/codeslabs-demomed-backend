@@ -337,16 +337,52 @@ function getToken(req: Request): string | null {
   return auth.slice(7).trim();
 }
 
+function patientFullNameNorm(p: Record<string, unknown>): string {
+  return `${String(p.nombres ?? "").trim()} ${String(p.apellidos ?? "").trim()}`.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Primero lista en memoria (GET /patients?limit=500). Si no hay coincidencia, usa /patients/search
+ * (misma lógica que buscar_paciente) para no perder pacientes que no entran en el primer lote.
+ */
 async function resolvePatientId(token: string, name: string): Promise<number | null> {
+  const q = String(name ?? "").trim();
+  if (!q) return null;
+  const lower = q.toLowerCase();
+
   const { data } = await backend.getPatients(token);
-  if (!data?.length) return null;
-  const lower = name.toLowerCase();
-  const found = data.find(
-    (p) =>
-      `${(p as any).nombres ?? ""} ${(p as any).apellidos ?? ""}`.toLowerCase().includes(lower) ||
-      lower.includes(`${(p as any).nombres ?? ""}`.toLowerCase())
-  );
-  return found ? (found as any).id : null;
+  if (data?.length) {
+    const found = data.find(
+      (p) =>
+        `${(p as any).nombres ?? ""} ${(p as any).apellidos ?? ""}`.toLowerCase().includes(lower) ||
+        lower.includes(`${(p as any).nombres ?? ""}`.toLowerCase())
+    );
+    if (found) return (found as any).id as number;
+  }
+
+  const search = await backend.searchPatients(token, q);
+  if (!search.success || !search.data?.length) return null;
+  const rows = search.data as Record<string, unknown>[];
+  const tokens = lower.split(/\s+/).filter((t) => t.length > 1);
+
+  const exact = rows.find((p) => patientFullNameNorm(p) === lower);
+  if (exact && typeof exact.id === "number") return exact.id as number;
+
+  const allTokens = rows.find((p) => {
+    const fn = patientFullNameNorm(p);
+    return tokens.length > 0 && tokens.every((t) => fn.includes(t));
+  });
+  if (allTokens && typeof allTokens.id === "number") return allTokens.id as number;
+
+  if (rows.length === 1 && typeof rows[0].id === "number") return rows[0].id as number;
+
+  const loose = rows.find((p) => {
+    const fn = patientFullNameNorm(p);
+    return fn.includes(lower) || lower.includes(fn);
+  });
+  if (loose && typeof loose.id === "number") return loose.id as number;
+
+  return null;
 }
 
 async function resolveMedicoId(token: string, name: string): Promise<number | null> {
