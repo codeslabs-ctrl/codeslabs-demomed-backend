@@ -816,7 +816,7 @@ async function handleMessage(req: Request): Promise<Response> {
 
   let finalReply: string | undefined;
   let navigateTo: string | undefined;
-  let pdfDownload: { base64: string; filename: string } | undefined;
+  let pdfDownloads: { base64: string; filename: string; label: string }[] | undefined;
 
   const confirmacionAgendar = await buildConfirmacionAgendar(message, stateMessages, token) ?? buildConfirmacionAgendarFallback(message);
   const esConfirmacionAgendar = messageIsConfirmacionAgendar(message);
