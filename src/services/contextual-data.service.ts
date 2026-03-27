@@ -27,6 +27,10 @@ export interface UltimoInforme {
   id: number;
   titulo?: string;
   motivo_consulta: string;
+  /** Desde historico_pacientes.examenes_paraclinicos */
+  examenes_paraclinicos: string;
+  /** Desde historico_pacientes.examenes_medico (examen físico en historia) */
+  examenes_medico: string;
   diagnostico: string;
   tratamiento: string;
   conclusiones: string;
@@ -274,6 +278,8 @@ export class ContextualDataService {
       return {
         id: data.id,
         motivo_consulta: data.motivo_consulta || '',
+        examenes_paraclinicos: data.examenes_paraclinicos || '',
+        examenes_medico: data.examenes_medico || '',
         diagnostico: data.diagnostico || '',
         tratamiento: data.plan || '',
         conclusiones: data.conclusiones || '',
@@ -330,6 +336,8 @@ export class ContextualDataService {
         id: historial.id,
         titulo: historial.titulo ?? undefined,
         motivo_consulta: historial.motivo_consulta || '',
+        examenes_paraclinicos: historial.examenes_paraclinicos || '',
+        examenes_medico: historial.examenes_medico || '',
         diagnostico: historial.diagnostico || '',
         tratamiento: historial.plan || '',
         conclusiones: historial.conclusiones || '',

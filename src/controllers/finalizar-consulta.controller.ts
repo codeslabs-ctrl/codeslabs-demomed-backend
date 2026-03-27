@@ -172,13 +172,20 @@ export class FinalizarConsultaController {
             });
           }
           
-          // 4. Validar montos y monedas
+          // 4. Validar montos y monedas (0 permitido: consulta gratuita / cortesía)
           for (const servicio of serviciosProcesados) {
-            if (!servicio.monto_pagado || servicio.monto_pagado <= 0) {
+            const montoNum = parseFloat(servicio.monto_pagado);
+            if (
+              servicio.monto_pagado === null ||
+              servicio.monto_pagado === undefined ||
+              servicio.monto_pagado === '' ||
+              Number.isNaN(montoNum) ||
+              montoNum < 0
+            ) {
               await client.query('ROLLBACK');
               return res.status(400).json({ 
                 success: false, 
-                error: `El monto para el servicio ${servicio.servicio_id} debe ser mayor a 0` 
+                error: `El monto para el servicio ${servicio.servicio_id} debe ser un número mayor o igual a 0` 
               });
             }
             
@@ -203,8 +210,17 @@ export class FinalizarConsultaController {
           // 6. Insertar servicios de la consulta
           const serviciosInsertados: any[] = [];
           for (const servicio of serviciosProcesados) {
-            // Validar que todos los campos requeridos estén presentes
-            if (!servicio.servicio_id || !servicio.monto_pagado || !servicio.moneda) {
+            // Validar que todos los campos requeridos estén presentes (monto_pagado puede ser 0)
+            const montoIns = parseFloat(servicio.monto_pagado);
+            if (
+              !servicio.servicio_id ||
+              servicio.monto_pagado === null ||
+              servicio.monto_pagado === undefined ||
+              servicio.monto_pagado === '' ||
+              Number.isNaN(montoIns) ||
+              montoIns < 0 ||
+              !servicio.moneda
+            ) {
               await client.query('ROLLBACK');
               console.error('❌ Error: Faltan campos requeridos en el servicio:', servicio);
               return res.status(400).json({ 

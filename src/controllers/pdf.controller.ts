@@ -60,7 +60,7 @@ export class PDFController {
 
   /**
    * POST /api/v1/pdf/receta-medico
-   * Body: { tipo: 'recipe' | 'indicaciones', contenido: string, paciente_id?, fecha_emision?, pies_clinica_ids?: number[] }
+   * Body: { tipo: 'recipe' | 'indicaciones' | 'ambos', contenido: string, paciente_id?, fecha_emision?, pies_clinica_ids?: number[] }
    * Requiere JWT con rol médico y medico_id.
    */
   async generarPDFRecetaMedico(req: AuthReq, res: Response): Promise<void> {
@@ -81,7 +81,8 @@ export class PDFController {
       };
 
       const tipoRaw = (body.tipo || 'recipe').toLowerCase();
-      const tipo = tipoRaw === 'indicaciones' ? 'indicaciones' : 'recipe';
+      const tipo: 'recipe' | 'indicaciones' | 'ambos' =
+        tipoRaw === 'indicaciones' ? 'indicaciones' : tipoRaw === 'ambos' ? 'ambos' : 'recipe';
       const contenido = typeof body.contenido === 'string' ? body.contenido : '';
 
       const pacienteId = body.paciente_id != null ? Number(body.paciente_id) : undefined;
@@ -102,7 +103,8 @@ export class PDFController {
         piesClinicaIds
       });
 
-      const label = tipo === 'indicaciones' ? 'indicaciones' : 'recipe';
+      const label =
+        tipo === 'indicaciones' ? 'indicaciones' : tipo === 'ambos' ? 'ambos' : 'recipe';
       const ts = new Date().getTime();
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="receta-${label}-${ts}.pdf"`);

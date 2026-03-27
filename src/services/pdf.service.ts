@@ -747,6 +747,25 @@ export class PDFService {
       .replace(/"/g, '&quot;');
   }
 
+  /** Modo receta "ambos": negrita en Récipe:/Indicaciones: al inicio de línea (incl. "Recipe"). */
+  private formatRecetaLineaAmbos(line: string): string {
+    const lead = line.match(/^\s*/)?.[0] ?? '';
+    const trimmed = line.trim();
+    const recipe = /^(r[ée]cipe|recipe)(\s*:)(.*)$/i.exec(trimmed);
+    if (recipe) {
+      const label = `${recipe[1] ?? ''}${recipe[2] ?? ''}`;
+      const rest = recipe[3] ?? '';
+      return `${lead}<strong>${this.escapeHtmlPdf(label)}</strong>${this.escapeHtmlPdf(rest)}`;
+    }
+    const ind = /^(indicaciones)(\s*:)(.*)$/i.exec(trimmed);
+    if (ind) {
+      const label = `${ind[1] ?? ''}${ind[2] ?? ''}`;
+      const rest = ind[3] ?? '';
+      return `${lead}<strong>${this.escapeHtmlPdf(label)}</strong>${this.escapeHtmlPdf(rest)}`;
+    }
+    return this.escapeHtmlPdf(line);
+  }
+
   /**
    * Procesa el contenido del informe para aplicar estilos
    * Mantiene el orden original del contenido sin duplicar datos
@@ -949,17 +968,18 @@ export class PDFService {
 
   /**
    * Genera PDF de récipe médico o indicaciones (médico logueado).
+   * Tipo "ambos": el encabezado no repite "Récipe"/"Indicaciones" (tituloDoc vacío), pero el cuerpo conserva el texto del editor, incluidas esas etiquetas.
    */
   async generarPDFRecetaMedico(params: {
     medicoId: number;
-    tipo: 'recipe' | 'indicaciones';
+    tipo: 'recipe' | 'indicaciones' | 'ambos';
     contenido: string;
     pacienteId?: number | null;
     fechaEmision?: string | null;
     piesClinicaIds?: number[];
   }): Promise<Buffer> {
     const { medicoId, tipo, contenido, pacienteId, fechaEmision, piesClinicaIds } = params;
-    const texto = (contenido || '').trim();
+    let texto = (contenido || '').trim();
     if (!texto) {
       throw new Error('El contenido del récipe es obligatorio');
     }
@@ -1004,7 +1024,8 @@ export class PDFService {
       /* */
     }
 
-    const tituloDoc = tipo === 'indicaciones' ? 'Indicaciones' : 'Récipe';
+    const tituloDoc =
+      tipo === 'indicaciones' ? 'Indicaciones' : tipo === 'recipe' ? 'Récipe' : '';
     const tituloMed = medico.sexo === 'Femenino' ? 'Dra.' : 'Dr.';
     const nombreCompleto = `${medico.nombres || ''} ${medico.apellidos || ''}`.trim();
     const fechaStr = fechaEmision
@@ -1053,7 +1074,9 @@ export class PDFService {
 
     const htmlContenido = texto
       .split(/\n/)
-      .map((line) => this.escapeHtmlPdf(line))
+      .map((line) =>
+        tipo === 'ambos' ? this.formatRecetaLineaAmbos(line) : this.escapeHtmlPdf(line)
+      )
       .join('<br/>');
 
     let bloquePaciente = '';
@@ -1162,7 +1185,7 @@ export class PDFService {
     <div class="receta-header-row">
       <div class="receta-logo-cell">${logoHeaderHtml}</div>
       <div class="receta-header-main">
-        <div class="receta-tipo">${this.escapeHtmlPdf(tituloDoc)}</div>
+        ${tituloDoc ? `<div class="receta-tipo">${this.escapeHtmlPdf(tituloDoc)}</div>` : ''}
         <div class="receta-med-nombre">${this.escapeHtmlPdf(tituloMed)} ${this.escapeHtmlPdf(nombreCompleto)}</div>
         ${lineasTitulacion.map((t: string) => `<div class="receta-titulacion">${this.escapeHtmlPdf(t)}</div>`).join('')}
         ${!lineasTitulacion.length && medico.nombre_especialidad ? `<div class="receta-titulacion">${this.escapeHtmlPdf(medico.nombre_especialidad)}</div>` : ''}
