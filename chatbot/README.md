@@ -45,7 +45,21 @@ deno run --allow-net --allow-env --allow-read server.ts
 
 ## Producción (PM2)
 
-El script de deploy del backend ya incluye pasos para compilar y levantar el chatbot con PM2 si existe `chatbot/server.ts` y Deno está instalado. El servicio queda como `demomed-chatbot` en el puerto configurado (p. ej. 3999).
+- **Ruta del backend en el servidor:** en `start-chatbot.sh` viene definido por defecto `PROJECT_DIR=/opt/proyectos/demomed/codeslabs-demomed-backend` (igual que el script de deploy). El chatbot es **`$PROJECT_DIR/chatbot`**. Si tu clone está en otra ruta: `export PROJECT_DIR="/tu/ruta/codeslabs-demomed-backend"`. Alternativa: `export CHATBOT_DIR=.../chatbot`. La URL del API Node sigue en **`BACKEND_URL`** dentro de `chatbot/.env`.
+- Proceso PM2 recomendado: **`demomed-chatbot`** (puerto en `.env`, p. ej. 3999).
+- En la carpeta `chatbot/` del backend (un solo script `start-chatbot.sh`):
+  ```bash
+  chmod +x start-chatbot.sh
+  ./start-chatbot.sh                 # levanta el chatbot
+  ./start-chatbot.sh restart         # o stop | status | logs
+  ```
+- El script de deploy del backend (`deploy-demomed-codes-labs-backend-git.sh`) **no** levanta el chatbot; hay que desplegarlo aparte con el comando anterior.
+
+### Si en producción ves: «No pude conectar con el asistente»
+
+1. **Logs:** `pm2 logs demomed-chatbot` (o `./start-chatbot.sh logs`). Busca líneas **`[chatbot-ai]`** con `HTTP 400`, `401`, `404`, etc.; el cuerpo suele ser JSON de Anthropic/OpenAI con el motivo exacto (`invalid_request_error`, modelo, esquema de tools, etc.).
+2. **Claude con tools:** Si un `curl` mínimo a `/v1/messages` **sin** `tools` funciona pero el chat **con** `USE_TOOL_CALLING=true` no, el fallo suele ser el **primer** request con `tools` (esquema o modelo). Prueba temporalmente **`USE_TOOL_CALLING=false`** en `chatbot/.env` y reinicia PM2: fuerza el flujo legacy (`__ACTION__`) sin tool calling nativo.
+3. Tras cambiar `.env`: **`pm2 restart demomed-chatbot`** (o `./start-chatbot.sh restart`).
 
 ## API del chatbot
 

@@ -1,1 +1,23 @@
-  # Carpeta scripts (no versionar)  scripts/  backend/scripts/  demomed-backend/scripts/ 
+# Credenciales y env (nunca versionar)
+.env
+.env.*
+!.env.example
+chatbot/.env
+**/chatbot/.env
+config.env
+config.dev.env
+config.*.env
+
+# Carpeta scripts (no versionar)
+scripts/
+
+# Build y dependencias
+node_modules/
+dist/
+
+# Assets subidos (firmas, sellos, uploads)
+assets/firmas/
+uploads/
+
+# IDE / workspace (opcional)
+*.code-workspace
