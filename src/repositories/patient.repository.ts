@@ -71,6 +71,28 @@ export class PatientRepository extends PostgresRepository<PatientData> {
     return result.rows;
   }
 
+  /** Coincidencia exacta de cédula (tras trim), para evitar duplicar `pacientes`. */
+  async findByCedulaExact(cedula: string): Promise<PatientData | null> {
+    const c = (cedula || '').trim();
+    if (!c) return null;
+    const result = await this.query(
+      `SELECT * FROM ${this.tableName} WHERE TRIM(cedula) = $1 LIMIT 1`,
+      [c]
+    );
+    return result.rows.length > 0 ? result.rows[0] : null;
+  }
+
+  /** Busca pacientes por teléfono (solo dígitos; ignora espacios, guiones, puntos). */
+  async searchByTelefono(telefono: string): Promise<PatientData[]> {
+    const digits = (telefono || '').replace(/\D/g, '');
+    if (digits.length < 10) return [];
+    const result = await this.query(
+      `SELECT * FROM ${this.tableName} WHERE REGEXP_REPLACE(COALESCE(telefono,''), '[^0-9]', '', 'g') = $1 ORDER BY id DESC`,
+      [digits]
+    );
+    return result.rows;
+  }
+
   async getPatientsByAgeRange(minAge: number, maxAge: number): Promise<PatientData[]> {
     const result = await this.query(
       `SELECT * FROM ${this.tableName} WHERE edad >= $1 AND edad <= $2 ORDER BY id DESC`,
