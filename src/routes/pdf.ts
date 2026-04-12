@@ -18,6 +18,12 @@ router.use(verifyClinica);
 router.get('/informe/:id', pdfController.generarPDFInforme.bind(pdfController));
 
 /**
+ * POST /api/v1/pdf/receta-medico/enviar-email
+ * Mismo cuerpo que receta-medico + email (destinatario).
+ */
+router.post('/receta-medico/enviar-email', pdfController.enviarRecetaMedicoPorEmail.bind(pdfController));
+
+/**
  * POST /api/v1/pdf/receta-medico
  * Genera PDF de récipe o indicaciones (solo médico autenticado).
  */
