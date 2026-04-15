@@ -218,20 +218,20 @@ export class EmailService {
       direccionClinica?: string;
       bloqueDireccion?: string;
       nombreClinica?: string;
+      /** HTML: enlace a mapas (también incluido en bloqueDireccion al paciente). */
+      bloqueMaps?: string;
+      /** Texto plano: línea con URL de mapas. */
+      textoLineaMaps?: string;
     }
   ): Promise<{ paciente: boolean; medico: boolean }> {
     const results = { paciente: false, medico: false };
-    const variables = {
-      ...consultaData,
-      medicoTituloNombre: consultaData.medicoTituloNombre ?? `Dr. ${consultaData.medicoNombre}`
-    };
 
     // Email al paciente
     const pacienteTemplate = this.getConsultaPacienteTemplate();
     results.paciente = await this.sendTemplateEmail(
       pacienteEmail,
       pacienteTemplate,
-      variables
+      consultaData
     );
 
     // Email al médico
@@ -239,7 +239,7 @@ export class EmailService {
     results.medico = await this.sendTemplateEmail(
       medicoEmail,
       medicoTemplate,
-      variables
+      consultaData
     );
 
     return results;
@@ -262,6 +262,11 @@ export class EmailService {
       motivo: string;
       tipo: string;
       observaciones?: string;
+      nombreClinica?: string;
+      direccionClinica?: string;
+      bloqueDireccion?: string;
+      bloqueMaps?: string;
+      textoLineaMaps?: string;
     }
   ): Promise<{ paciente: boolean; medico: boolean }> {
     const results = { paciente: false, medico: false };
@@ -563,6 +568,7 @@ export class EmailService {
         Observaciones: {{observaciones}}
         Lugar de atención: {{nombreClinica}}
         Dirección: {{direccionClinica}}
+        {{textoLineaMaps}}
         
         Importante:
         - Llegue 15 minutos antes
@@ -712,21 +718,20 @@ export class EmailService {
               <p>${config.sistema.clinicaNombre}</p>
             </div>
             <div class="content">
-              <p>Estimado/a <strong>{{medicoTituloNombre}}</strong>,</p>
-              
-              <p>Usted tiene una consulta agendada. A continuación los detalles:</p>
+              <p><strong>Usted tiene una consulta agendada.</strong></p>
               
               <div class="info-box">
-                <h3>📋 Detalles de la Consulta</h3>
+                <h3>📋 Información de la Consulta</h3>
                 <p><strong>Paciente:</strong> {{pacienteNombre}}</p>
                 <p><strong>Fecha:</strong> {{fecha}}</p>
                 <p><strong>Hora:</strong> {{hora}}</p>
                 <p><strong>Motivo:</strong> {{motivo}}</p>
                 <p><strong>Tipo:</strong> {{tipo}}</p>
-                <p><strong>Duración:</strong> {{duracion}} minutos</p>
+                <p><strong>Duración estimada:</strong> {{duracion}} minutos</p>
                 <p><strong>Observaciones:</strong> {{observaciones}}</p>
                 <p><strong>Lugar de atención:</strong> {{nombreClinica}}</p>
                 <p><strong>Dirección:</strong> {{direccionClinica}}</p>
+                {{bloqueMaps}}
               </div>
               
               <p>Puede revisar todos sus pacientes en el sistema.</p>
@@ -757,7 +762,7 @@ export class EmailService {
             .container { max-width: 600px; margin: 0 auto; padding: 20px; }
             .header { background: linear-gradient(135deg, #1976D2, #2196F3); color: white; padding: 20px; text-align: center; }
             .content { padding: 20px; background: #f9f9f9; }
-            .info-box { background: white; padding: 15px; margin: 10px 0; border-left: 4px solid #2196F3; }
+            .info-box { background: white; padding: 15px; margin: 10px 0; border-left: 4px solid #f39c12; }
             .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
           </style>
         </head>
@@ -815,8 +820,8 @@ export class EmailService {
             .container { max-width: 600px; margin: 0 auto; padding: 20px; }
             .header { background: linear-gradient(135deg, #1976D2, #2196F3); color: white; padding: 20px; text-align: center; }
             .content { padding: 20px; background: #f9f9f9; }
-            .otp-box { background: #fff; padding: 20px; margin: 20px 0; text-align: center; border: 2px solid #2196F3; border-radius: 8px; }
-            .otp-code { font-size: 32px; font-weight: bold; color: #1976D2; letter-spacing: 5px; }
+            .otp-box { background: #fff; padding: 20px; margin: 20px 0; text-align: center; border: 2px solid #e74c3c; border-radius: 8px; }
+            .otp-code { font-size: 32px; font-weight: bold; color: #e74c3c; letter-spacing: 5px; }
             .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
           </style>
         </head>
@@ -870,8 +875,8 @@ export class EmailService {
             .container { max-width: 600px; margin: 0 auto; padding: 20px; }
             .header { background: linear-gradient(135deg, #1976D2, #2196F3); color: white; padding: 20px; text-align: center; }
             .content { padding: 20px; background: #f9f9f9; }
-            .otp-box { background: #fff; padding: 20px; margin: 20px 0; text-align: center; border: 2px solid #2196F3; border-radius: 8px; }
-            .otp-code { font-size: 32px; font-weight: bold; color: #1976D2; letter-spacing: 5px; }
+            .otp-box { background: #fff; padding: 20px; margin: 20px 0; text-align: center; border: 2px solid #27ae60; border-radius: 8px; }
+            .otp-code { font-size: 32px; font-weight: bold; color: #27ae60; letter-spacing: 5px; }
             .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
           </style>
         </head>
@@ -1412,6 +1417,8 @@ export class EmailService {
                 </div>
               </div>
               
+              {{bloqueDireccion}}
+              
               <div style="margin: 20px 0;">
                 <p><strong>Importante:</strong></p>
                 <ul>
@@ -1448,6 +1455,10 @@ export class EmailService {
         - Motivo: {{motivo}}
         - Tipo: {{tipo}}
         - Observaciones: {{observaciones}}
+        
+        Lugar de atención: {{nombreClinica}}
+        Dirección: {{direccionClinica}}
+        {{textoLineaMaps}}
         
         Importante:
         - Llegue 15 minutos antes de su nueva cita
@@ -1539,6 +1550,8 @@ export class EmailService {
                 </div>
               </div>
               
+              {{bloqueDireccion}}
+              
               <div style="margin: 20px 0;">
                 <p><strong>Acciones recomendadas:</strong></p>
                 <ul>
@@ -1575,6 +1588,10 @@ export class EmailService {
         - Motivo: {{motivo}}
         - Tipo: {{tipo}}
         - Observaciones: {{observaciones}}
+        
+        Lugar de atención: {{nombreClinica}}
+        Dirección: {{direccionClinica}}
+        {{textoLineaMaps}}
         
         Acciones recomendadas:
         - Actualizar su agenda médica con la nueva fecha/hora
@@ -1850,7 +1867,7 @@ export class EmailService {
             .container { max-width: 600px; margin: 0 auto; }
             .header { background: linear-gradient(135deg, #1976D2, #2196F3); color: white; padding: 24px; text-align: center; }
             .content { padding: 20px; background: #f9f9f9; }
-            .info-box { background: white; padding: 16px; border-left: 4px solid #2196F3; margin: 12px 0; }
+            .info-box { background: white; padding: 16px; border-left: 4px solid #E91E63; margin: 12px 0; }
             .footer { text-align: center; padding: 16px; color: #666; font-size: 12px; }
           </style>
         </head>
